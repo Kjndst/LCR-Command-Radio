@@ -58,6 +58,7 @@ const (
 	XBUTTON1       = 1
 	XBUTTON2       = 2
 	VK_ESCAPE      = 0x1B
+	VK_RETURN      = 0x0D
 
 	HTCLIENT  = 1
 	HTCAPTION = 2
@@ -66,17 +67,20 @@ const (
 	SWP_NOSIZE               = 0x0001
 	SWP_NOZORDER             = 0x0004
 
-	WS_POPUP        = 0x80000000
-	WS_SYSMENU      = 0x00080000
-	WS_CHILD        = 0x40000000
-	WS_BORDER       = 0x00800000
-	WS_EX_APPWINDOW = 0x00040000
-	ES_CENTER       = 0x0001
-	ES_MULTILINE    = 0x0004
-	ES_UPPERCASE    = 0x0008
-	ES_AUTOVSCROLL  = 0x0040
-	EM_SETRECTNP    = 0x00B4
-	WM_SETFONT      = 0x0030
+	WS_POPUP         = 0x80000000
+	WS_SYSMENU       = 0x00080000
+	WS_CHILD         = 0x40000000
+	WS_VISIBLE       = 0x10000000
+	WS_BORDER        = 0x00800000
+	WS_EX_APPWINDOW  = 0x00040000
+	WS_EX_TOOLWINDOW = 0x00000080
+	ES_CENTER        = 0x0001
+	ES_MULTILINE     = 0x0004
+	ES_UPPERCASE     = 0x0008
+	ES_AUTOVSCROLL   = 0x0040
+	ES_AUTOHSCROLL   = 0x0080
+	EM_SETRECTNP     = 0x00B4
+	WM_SETFONT       = 0x0030
 
 	SW_HIDE       = 0
 	SW_SHOW       = 5
@@ -132,6 +136,7 @@ const (
 	controlPair
 	controlChangeKey
 	controlMinimize
+	controlSettings
 	controlClose
 	controlReconnect
 	controlUnpair
@@ -268,6 +273,8 @@ var (
 	pTrackMouseEvent     = user32.NewProc("TrackMouseEvent")
 	pSetCapture          = user32.NewProc("SetCapture")
 	pReleaseCapture      = user32.NewProc("ReleaseCapture")
+	pEnableWindow        = user32.NewProc("EnableWindow")
+	pDestroyWindow       = user32.NewProc("DestroyWindow")
 
 	pGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
 
@@ -277,6 +284,7 @@ var (
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
 	pBitBlt                 = gdi32.NewProc("BitBlt")
+	pEllipse                = gdi32.NewProc("Ellipse")
 	pFillRect               = user32.NewProc("FillRect")
 	pSetTextColor           = gdi32.NewProc("SetTextColor")
 	pSetBkColor             = gdi32.NewProc("SetBkColor")
@@ -306,6 +314,7 @@ var currentApp *winApp
 
 type winApp struct {
 	mu                                             sync.RWMutex
+	apiMu                                          sync.RWMutex
 	cfg                                            AppConfig
 	api                                            *RadioAPI
 	hwnd                                           uintptr
@@ -319,13 +328,14 @@ type winApp struct {
 	connected                                      bool
 	transmitting                                   bool
 	capturing                                      bool
+	modal                                          bool
 	quitting                                       bool
 	hovered, pressed                               controlID
 	heartbeatCancel                                context.CancelFunc
 	radioEvents                                    chan bool
 	keyEvents                                      chan keyCaptureEvent
 	iconGreen, iconRed, iconGray                   uintptr
-	brushBG, brushPanel, brushEdit                 uintptr
+	brushBG, brushPanel, brushEdit, brushModal     uintptr
 	brushLine, brushLineDim                        uintptr
 	brushButton, brushButtonBusy, brushButtonError uintptr
 	fontTitle, fontBody, fontSmall                 uintptr
@@ -367,7 +377,7 @@ func run(args []string) error {
 		}
 	}
 	a := &winApp{cfg: loadConfig(), radioEvents: make(chan bool, 16), keyEvents: make(chan keyCaptureEvent, 8), notice: "READY FOR PAIRING", noticeKind: noticeInfo}
-	a.api = NewRadioAPI(a.cfg.ServerURL, a.cfg.DeviceToken)
+	a.replaceAPI(a.cfg.ServerURL, a.cfg.DeviceToken)
 	a.paired = a.cfg.DeviceToken != ""
 	currentApp = a
 	if err := a.init(); err != nil {
@@ -407,6 +417,7 @@ func (a *winApp) init() error {
 	}
 	a.hwnd = hwnd
 	a.brushBG, _, _ = pCreateSolidBrush.Call(rgb(5, 6, 7))
+	a.brushModal, _, _ = pCreateSolidBrush.Call(rgb(2, 2, 3))
 	a.brushPanel, _, _ = pCreateSolidBrush.Call(rgb(14, 12, 13))
 	a.brushEdit, _, _ = pCreateSolidBrush.Call(rgb(22, 17, 18))
 	a.brushLine, _, _ = pCreateSolidBrush.Call(rgb(225, 35, 29))
@@ -463,7 +474,7 @@ func (a *winApp) cleanup() {
 			pDestroyIcon.Call(h)
 		}
 	}
-	for _, h := range []uintptr{a.brushBG, a.brushPanel, a.brushEdit, a.brushLine, a.brushLineDim, a.brushButton, a.brushButtonBusy, a.brushButtonError, a.fontTitle, a.fontBody, a.fontSmall} {
+	for _, h := range []uintptr{a.brushBG, a.brushModal, a.brushPanel, a.brushEdit, a.brushLine, a.brushLineDim, a.brushButton, a.brushButtonBusy, a.brushButtonError, a.fontTitle, a.fontBody, a.fontSmall} {
 		if h != 0 {
 			pDeleteObject.Call(h)
 		}
@@ -576,7 +587,7 @@ func (a *winApp) paint() {
 	pSetBkMode.Call(hdc, TRANSPARENT)
 
 	a.mu.RLock()
-	paired, connected, tx, pairing, pairErr, capturing, notice, noticeKind, cfg := a.paired, a.connected, a.transmitting, a.pairing, a.pairError, a.capturing, a.notice, a.noticeKind, a.cfg
+	paired, connected, tx, pairing, pairErr, capturing, modal, notice, noticeKind, cfg := a.paired, a.connected, a.transmitting, a.pairing, a.pairError, a.capturing, a.modal, a.notice, a.noticeKind, a.cfg
 	a.mu.RUnlock()
 	drawHeader(hdc, a)
 
@@ -633,11 +644,47 @@ func (a *winApp) paint() {
 		}
 	}
 	drawTerminalStatus(hdc, a, notice, noticeKind)
+	if modal {
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), a.brushModal)
+		drawTechOutline(hdc, a, RECT{12, 12, rc.Right - 12, rc.Bottom - 12}, false)
+	}
 }
 
 func drawHeader(hdc uintptr, a *winApp) {
 	a.drawBanner(hdc)
+	drawGearButton(hdc, a, RECT{454, 6, 484, 28})
 	drawWindowButton(hdc, a, controlClose, RECT{490, 6, 520, 28}, "×")
+}
+
+func drawGearButton(hdc uintptr, a *winApp, panel RECT) {
+	a.mu.RLock()
+	hovered, pressed := a.hovered == controlSettings, a.pressed == controlSettings
+	a.mu.RUnlock()
+	fill := a.brushPanel
+	if hovered {
+		fill = a.brushButtonError
+	}
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&panel)), fill)
+	drawTechOutline(hdc, a, panel, hovered || pressed)
+	tooth := a.brushLineDim
+	if hovered || pressed {
+		tooth = a.brushLine
+	}
+	cx, cy := (panel.Left+panel.Right)/2, (panel.Top+panel.Bottom)/2
+	for _, rc := range []RECT{
+		{cx - 2, cy - 10, cx + 3, cy - 5}, {cx - 2, cy + 5, cx + 3, cy + 10},
+		{cx - 10, cy - 2, cx - 5, cy + 3}, {cx + 5, cy - 2, cx + 10, cy + 3},
+		{cx - 8, cy - 8, cx - 4, cy - 4}, {cx + 4, cy - 8, cx + 8, cy - 4},
+		{cx - 8, cy + 4, cx - 4, cy + 8}, {cx + 4, cy + 4, cx + 8, cy + 8},
+	} {
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), tooth)
+	}
+	old, _, _ := pSelectObject.Call(hdc, tooth)
+	pEllipse.Call(hdc, uintptr(cx-7), uintptr(cy-7), uintptr(cx+8), uintptr(cy+8))
+	pSelectObject.Call(hdc, old)
+	old, _, _ = pSelectObject.Call(hdc, a.brushBG)
+	pEllipse.Call(hdc, uintptr(cx-3), uintptr(cy-3), uintptr(cx+4), uintptr(cy+4))
+	pSelectObject.Call(hdc, old)
 }
 
 func drawRadioKey(hdc uintptr, a *winApp, cfg AppConfig, capturing bool, top int32) {
@@ -754,6 +801,9 @@ func (a *winApp) controlAt(x, y int32) controlID {
 	a.mu.RLock()
 	paired, connected, pairing := a.paired, a.connected, a.pairing
 	a.mu.RUnlock()
+	if inRect(x, y, 454, 6, 484, 28) {
+		return controlSettings
+	}
 	if inRect(x, y, 490, 6, 520, 28) {
 		return controlClose
 	}
@@ -831,6 +881,8 @@ func (a *winApp) activate(id controlID) {
 		a.beginKeyCapture()
 	case controlMinimize:
 		pShowWindow.Call(a.hwnd, SW_HIDE)
+	case controlSettings:
+		a.openSettings()
 	case controlClose:
 		pShowWindow.Call(a.hwnd, SW_HIDE)
 	case controlReconnect:
@@ -847,6 +899,8 @@ func (a *winApp) invalidateControl(id controlID) {
 	}
 	rc := RECT{26, 250, 514, 540}
 	switch id {
+	case controlSettings:
+		rc = RECT{454, 6, 484, 28}
 	case controlClose:
 		rc = RECT{490, 6, 520, 28}
 	case controlChangeKey:
@@ -904,7 +958,7 @@ func (a *winApp) pairFromEdit() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	res, err := a.api.Pair(ctx, code, "Windows helper")
+	res, err := a.currentAPI().Pair(ctx, code, "Windows helper")
 	if err != nil {
 		msg := "PAIR FAILED"
 		errText := strings.ToLower(err.Error())
@@ -925,7 +979,7 @@ func (a *winApp) pairFromEdit() {
 	a.pairError = ""
 	cfg := a.cfg
 	a.mu.Unlock()
-	a.api.SetToken(res.Token)
+	a.replaceAPI(cfg.ServerURL, res.Token)
 	_ = saveConfig(cfg)
 	a.setConnected(true)
 	pShowWindow.Call(a.edit, SW_HIDE)
@@ -1025,7 +1079,7 @@ func keyboardKeyName(vk, scanCode, flags uint32) string {
 func (a *winApp) reconnect() {
 	a.setNotice("RECONNECTING TO COMMAND...", noticeInfo)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	err := a.api.Probe(ctx)
+	err := a.currentAPI().Probe(ctx)
 	cancel()
 	a.setConnected(err == nil)
 }
@@ -1033,7 +1087,7 @@ func (a *winApp) reconnect() {
 func (a *winApp) unpair() {
 	a.stopHeartbeat()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	_ = a.api.SetState(ctx, false)
+	_ = a.currentAPI().SetState(ctx, false)
 	cancel()
 	a.mu.Lock()
 	a.paired = false
@@ -1048,7 +1102,7 @@ func (a *winApp) unpair() {
 	a.cfg.UserID = ""
 	cfg := a.cfg
 	a.mu.Unlock()
-	a.api.SetToken("")
+	a.replaceAPI(cfg.ServerURL, "")
 	_ = saveConfig(cfg)
 	pShowWindow.Call(a.edit, SW_SHOW)
 	a.showWindow()
@@ -1169,7 +1223,7 @@ func (a *winApp) radioWorker() {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err := a.api.SetState(ctx, target)
+		err := a.currentAPI().SetState(ctx, target)
 		cancel()
 		if err != nil {
 			a.stopHeartbeat()
@@ -1199,7 +1253,7 @@ func (a *winApp) startHeartbeat() {
 				return
 			case <-t.C:
 				c, cc := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-				err := a.api.Heartbeat(c)
+				err := a.currentAPI().Heartbeat(c)
 				cc()
 				if err != nil {
 					a.setState(false, false)
@@ -1232,7 +1286,7 @@ func (a *winApp) probeLoop() {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err := a.api.Probe(ctx)
+		err := a.currentAPI().Probe(ctx)
 		cancel()
 		a.setConnected(err == nil)
 	}
@@ -1269,6 +1323,68 @@ func (a *winApp) setNotice(text string, kind noticeKind) {
 	a.mu.Unlock()
 	a.postState()
 }
+
+func (a *winApp) replaceAPI(endpoint, token string) {
+	a.apiMu.Lock()
+	a.api = NewRadioAPI(endpoint, token)
+	a.apiMu.Unlock()
+}
+
+func (a *winApp) currentAPI() *RadioAPI {
+	a.apiMu.RLock()
+	api := a.api
+	a.apiMu.RUnlock()
+	return api
+}
+
+// updateServerURL is the one hot-switch path for the existing control client.
+// It preserves pairing identity and radio-key state while closing the old gate
+// locally before probing the newly selected endpoint.
+func (a *winApp) updateServerURL(endpoint string) error {
+	endpoint, ok := normalizeServerURL(endpoint)
+	if !ok {
+		return fmt.Errorf("invalid server URL")
+	}
+	a.stopHeartbeat()
+	a.mu.Lock()
+	a.cfg.ServerURL = endpoint
+	paired := a.paired
+	token := a.cfg.DeviceToken
+	a.connected = false
+	a.transmitting = false
+	a.notice = "SERVER ADDRESS UPDATED"
+	a.noticeKind = noticeSuccess
+	cfg := a.cfg
+	a.mu.Unlock()
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.replaceAPI(endpoint, token)
+	a.postState()
+	if paired {
+		go a.reconnectEndpoint()
+	}
+	return nil
+}
+
+func (a *winApp) reconnectEndpoint() {
+	a.setNotice("CONNECTING TO COMMAND...", noticeInfo)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	err := a.currentAPI().Probe(ctx)
+	cancel()
+	if err != nil {
+		a.mu.Lock()
+		a.connected = false
+		a.transmitting = false
+		a.notice = "SERVER UNREACHABLE"
+		a.noticeKind = noticeWarning
+		a.mu.Unlock()
+		a.postState()
+		return
+	}
+	a.setConnected(true)
+}
+
 func (a *winApp) setState(conn, tx bool) {
 	a.mu.Lock()
 	wasConnected := a.connected

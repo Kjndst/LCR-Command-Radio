@@ -142,7 +142,7 @@ func main() {
 	p, _ := filepath.Abs(*project)
 	required := []string{
 		"internal/guild/raid_mode.go", "internal/bot/commands.go", "internal/bot/handlers_voice.go",
-		"internal/bot/bot.go", "internal/bot/handlers_test.go", "internal/bot/setup_ui.go", "internal/guild/status.go", "internal/manager/voice_raid.go",
+		"internal/bot/bot.go", "internal/bot/handlers_test.go", "internal/bot/handlers_setup.go", "internal/bot/setup_ui.go", "internal/guild/status.go", "internal/manager/voice_raid.go",
 		"internal/manager/router/router.go", "internal/manager/pipeline/pipeline.go", "internal/manager/pipeline/star_caller.go",
 	}
 	for _, rel := range required {
@@ -295,6 +295,24 @@ func main() {
 	replaceOnce(setupUI,
 		"return loc.T(\"setup.roles_title\") + \"\\n\" + status.Render(loc), components\n",
 		"return loc.T(\"radio.setup.roles_title\") + \"\\n\" + loc.T(\"radio.setup.roles_hint\") + \"\\n\" + status.Render(loc), components\n")
+	replaceOnce(setupUI,
+		"\treturn content, components\n}\n",
+		"\treturn content, components\n}\n\n"+
+			"// buildSpeakerAddedMessage offers the next setup action after a speaker has\n"+
+			"// been bound to a Unit channel. Both buttons reuse existing component routes.\n"+
+			"func (h *CommandHandlers) buildSpeakerAddedMessage(loc *i18n.Localizer) (string, []discord.LayoutComponent) {\n"+
+			"\treturn loc.T(\"speaker.added_title\"), []discord.LayoutComponent{\n"+
+			"\t\tdiscord.NewActionRow(\n"+
+			"\t\t\tdiscord.NewSuccessButton(loc.T(\"btn.add_another_speaker\"), \"/speakers/add\"),\n"+
+			"\t\t\tdiscord.NewSecondaryButton(loc.T(\"btn.done_back_setup\"), \"/speakers/menu\"),\n"+
+			"\t\t),\n"+
+			"\t}\n"+
+			"}\n")
+
+	handlersSetup := filepath.Join(r, "internal/bot/handlers_setup.go")
+	replaceOnce(handlersSetup,
+		"\tchannels := channelData.Channels()\n\tif len(channels) == 0 {\n\t\th.manager.UnbindChannel(guildID, speakerID)\n\t} else {\n\t\th.manager.BindChannel(guildID, speakerID, channels[0].ID)\n\t}\n\n\tmsg, components := h.buildSpeakersPageMessage(guildID, loc, page)\n",
+		"\tchannels := channelData.Channels()\n\tif len(channels) == 0 {\n\t\th.manager.UnbindChannel(guildID, speakerID)\n\t\tmsg, components := h.buildSpeakersPageMessage(guildID, loc, page)\n\t\treturn e.UpdateMessage(discord.NewMessageUpdate().\n\t\t\tWithContent(msg).\n\t\t\tWithComponents(components...))\n\t}\n\n\th.manager.BindChannel(guildID, speakerID, channels[0].ID)\n\tmsg, components := h.buildSpeakerAddedMessage(loc)\n")
 
 	status := filepath.Join(r, "internal/guild/status.go")
 	replaceOnce(status,
@@ -328,10 +346,26 @@ func main() {
 		"pt.yaml": `cmd.start.opt.mode.description: "Áudio: Command Radio é o padrão local; com código relay, ouvinte é o padrão."`,
 		"ru.yaml": `cmd.start.opt.mode.description: "Аудио: локально по умолчанию Command Radio; с relay-кодом — режим слушателя."`,
 	}
+	type speakerContinuationCopy struct {
+		success, addAnother, done string
+	}
+	speakerContinuationCopies := map[string]speakerContinuationCopy{
+		"de.yaml": {"✅ Speaker erfolgreich gebunden.", "➕ Weiteren Speaker hinzufügen", "✅ Fertig / Zurück zur Einrichtung"},
+		"en.yaml": {"✅ Speaker added and bound successfully.", "➕ Add Another Speaker", "✅ Done / Back to Setup"},
+		"es.yaml": {"✅ Speaker añadido y vinculado correctamente.", "➕ Añadir otro speaker", "✅ Listo / Volver a configuración"},
+		"fr.yaml": {"✅ Speaker ajouté et lié avec succès.", "➕ Ajouter un autre speaker", "✅ Terminé / Retour à la configuration"},
+		"pl.yaml": {"✅ Speaker dodany i pomyślnie powiązany.", "➕ Dodaj kolejnego speakera", "✅ Gotowe / Wróć do konfiguracji"},
+		"pt.yaml": {"✅ Speaker adicionado e vinculado com sucesso.", "➕ Adicionar outro speaker", "✅ Concluído / Voltar à configuração"},
+		"ru.yaml": {"✅ Speaker успешно добавлен и привязан.", "➕ Добавить ещё Speaker", "✅ Готово / Назад к настройке"},
+	}
 	for _, loc := range locales {
 		replacement, ok := startModeDescriptions[filepath.Base(loc)]
 		if !ok {
 			panic(fmt.Errorf("missing /start mode copy for locale %s", loc))
+		}
+		speakerCopy, ok := speakerContinuationCopies[filepath.Base(loc)]
+		if !ok {
+			panic(fmt.Errorf("missing speaker continuation copy for locale %s", loc))
 		}
 		replaceLinePrefix(loc, "cmd.start.opt.mode.description:", replacement)
 		appendAfterLinePrefix(loc, "cmd.setup.description:", `cmd.setup.opt.commander_role.name: "commander-role"`)
@@ -347,10 +381,13 @@ func main() {
 		appendAfterLinePrefix(loc, "status.owner_channel:", `radio.status.command_channel: "Command Channel"`)
 		appendAfterLinePrefix(loc, "cmd.start.opt.mode.choice.one_many:", `cmd.start.opt.mode.choice.command: "Command Radio"`)
 		appendAfterLinePrefix(loc, "cmd.status.description:", `cmd.radio_pair.description: "Pair this PC with LLB Command Radio"`)
-		appendAfterLinePrefix(loc, "raid.start_failed:", `radio.need_caller: "❌ You need the configured capture/caller role to pair Command Radio."`)
+		appendAfterLinePrefix(loc, "raid.start_failed:", `radio.need_caller: "❌ You need the configured Unit Leader Role to pair Command Radio."`)
 		appendAfterLinePrefix(loc, "radio.need_caller:", `radio.pair_failed: "❌ Failed to create radio pairing code: {{.Err}}"`)
 		appendAfterLinePrefix(loc, "radio.pair_failed:", `radio.pair_code: "📻 Command Radio pair code: {{.Code}} — expires in 5 minutes and works once."`)
 		appendAfterLinePrefix(loc, "raid_mode.one_many_callers_host:", `raid_mode.command_host: "Command Radio (host)"`)
+		appendAfterLinePrefix(loc, "speaker.add_steps:", fmt.Sprintf("speaker.added_title: %q", speakerCopy.success))
+		appendAfterLinePrefix(loc, "btn.add_speaker:", fmt.Sprintf("btn.add_another_speaker: %q", speakerCopy.addAnother))
+		appendAfterLinePrefix(loc, "btn.add_another_speaker:", fmt.Sprintf("btn.done_back_setup: %q", speakerCopy.done))
 	}
 
 	fmt.Println("\nPATCH APPLIED")

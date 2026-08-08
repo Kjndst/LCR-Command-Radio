@@ -8,7 +8,7 @@ $Server = Join-Path $ProjectRoot 'server'
 if (-not (Test-Path $Server)) { throw "Generated server missing: $Server. Run host\scripts\prepare-server-light.ps1 first." }
 if (-not (Test-Path $EnvFile)) { throw "Host env missing: $EnvFile. Copy .env.host.example to .env.host and fill the bot tokens + secret." }
 $text = Get-Content $EnvFile -Raw
-if ($text -match 'REPLACE_WITH' -or $text -match 'DISCORD_OWNER_BOT_TOKEN=\s*$' -or $text -notmatch '(?m)^DISCORD_SPEAKER_BOT_TOKEN_1=\S+' -or $text -notmatch '(?m)^LLB_RADIO_SECRET=\S{32,}\s*$') { throw '.env.host still contains placeholders / missing owner, speaker, or radio secret.' }
+if ($text -match 'REPLACE_WITH' -or $text -match 'DISCORD_OWNER_BOT_TOKEN=\s*$' -or $text -notmatch '(?m)^DISCORD_SPEAKER_BOT_TOKEN_1=\S+' -or $text -notmatch '(?m)^DISCORD_SPEAKER_BOT_TOKEN_2=\S+' -or $text -notmatch '(?m)^DISCORD_SPEAKER_BOT_TOKEN_3=\S+' -or $text -notmatch '(?m)^LLB_RADIO_SECRET=\S{32,}\s*$') { throw '.env.host still contains placeholders / missing owner, three speaker tokens, or radio secret.' }
 
 Push-Location $HostDir
 try {

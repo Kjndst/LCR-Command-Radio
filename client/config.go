@@ -45,17 +45,22 @@ func legacyConfigPath() string {
 
 func loadConfig() AppConfig {
 	cfg := defaultConfig()
+	// Keep the source of the endpoint explicit: an absent persisted value is
+	// resolved below and then written once as the effective compiled default.
+	cfg.ServerURL = ""
 	b, err := os.ReadFile(configPath())
 	if err != nil {
 		b, err = os.ReadFile(legacyConfigPath())
 	}
+	loaded := err == nil
 	if err != nil {
-		return cfg
+		b = nil
 	}
-	_ = json.Unmarshal(b, &cfg)
-	if cfg.ServerURL == "" {
-		cfg.ServerURL = defaultServerURL
+	if len(b) != 0 {
+		_ = json.Unmarshal(b, &cfg)
 	}
+	serverURL, endpointChanged := resolveServerURL(cfg.ServerURL, defaultServerURL)
+	cfg.ServerURL = serverURL
 	if cfg.RadioKey == "" {
 		cfg.RadioKey = "Mouse5"
 	}
@@ -66,6 +71,9 @@ func loadConfig() AppConfig {
 	cfg.RadioMode = "Hold"
 	if cfg.VoiceMode == "" {
 		cfg.VoiceMode = "OpenMic"
+	}
+	if !loaded || endpointChanged {
+		_ = saveConfig(cfg)
 	}
 	return cfg
 }

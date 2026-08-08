@@ -8,6 +8,8 @@ ENV="$HOST/.env.host"
 [ -f "$ENV" ] || { echo 'FAIL: .env.host missing. cp host/.env.host.example host/.env.host'; exit 2; }
 grep -Eq '^DISCORD_OWNER_BOT_TOKEN=.+$' "$ENV" || { echo 'FAIL: owner bot token empty'; exit 2; }
 grep -Eq '^DISCORD_SPEAKER_BOT_TOKEN_1=.+$' "$ENV" || { echo 'FAIL: speaker bot token 1 empty'; exit 2; }
+grep -Eq '^DISCORD_SPEAKER_BOT_TOKEN_2=.+$' "$ENV" || { echo 'FAIL: speaker bot token 2 empty'; exit 2; }
+grep -Eq '^DISCORD_SPEAKER_BOT_TOKEN_3=.+$' "$ENV" || { echo 'FAIL: speaker bot token 3 empty'; exit 2; }
 grep -Eq '^LLB_RADIO_SECRET=[^[:space:]]{32,}$' "$ENV" || { echo 'FAIL: radio secret missing or too short'; exit 2; }
 command -v docker >/dev/null || { echo 'FAIL: docker missing'; exit 2; }
 docker info >/dev/null 2>&1 || { echo 'FAIL: docker daemon unavailable / permission denied'; exit 2; }

@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
@@ -10,6 +12,33 @@ import (
 	"github.com/sealbro/go-discord-caller/internal/manager"
 	"github.com/sealbro/go-discord-caller/internal/store"
 )
+
+func TestSpeakerAddedContinuationUsesExistingSetupRoutes(t *testing.T) {
+	bundle, err := i18n.NewBundle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := bundle.For("", "")
+	content, components := (&CommandHandlers{}).buildSpeakerAddedMessage(loc)
+	if content != loc.T("speaker.added_title") {
+		t.Fatalf("continuation content = %q, want success message", content)
+	}
+
+	payload, err := json.Marshal(components)
+	if err != nil {
+		t.Fatalf("marshal continuation components: %v", err)
+	}
+	for _, want := range []string{
+		loc.T("btn.add_another_speaker"),
+		`"custom_id":"/speakers/add"`,
+		loc.T("btn.done_back_setup"),
+		`"custom_id":"/speakers/menu"`,
+	} {
+		if !strings.Contains(string(payload), want) {
+			t.Errorf("continuation components missing %q: %s", want, payload)
+		}
+	}
+}
 
 type roleBindingCall struct {
 	roleType store.RoleType
