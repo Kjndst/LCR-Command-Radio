@@ -1,0 +1,33 @@
+# Secrets
+host/.env.host
+.env
+.env.*
+!.env.example
+!*.env.example
+
+# Generated host/source trees
+host/worktree/
+host/data/
+
+# Build/release outputs
+bin/
+build/
+dist/
+release/
+*.exe
+*.msi
+*.log
+
+# Local/editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Go build/test leftovers
+coverage.out
+*.test
+
+# Derived upstream server checkout and generated host helpers
+/server/
+host/bin/

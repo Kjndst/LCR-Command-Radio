@@ -1,0 +1,3 @@
+Repository: https://github.com/sealbro/go-discord-caller
+Compatibility target commit: 9845af2e26d7e39ad15843a674102311b1ef43df
+Observed current architecture: star caller pipeline + per-user role-filtered VoiceReceiver fanout.

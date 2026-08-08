@@ -1,0 +1,26 @@
+name: llb-command-radio
+services:
+  bot:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    image: llb-command-radio:0.3.1
+    container_name: llb-command-radio
+    env_file:
+      - .env.host
+    environment:
+      LLB_RADIO_ADDR: 0.0.0.0:17777
+      STORE_PATH: /data/store.yaml
+    ports:
+      - "127.0.0.1:17777:17777"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    init: true
+    pids_limit: 256
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
