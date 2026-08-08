@@ -17,17 +17,28 @@ import (
 	"unsafe"
 )
 
-//go:embed assets/*.ico
-var iconFS embed.FS
+//go:embed assets/*.ico assets/lcr-banner.png
+var assetFS embed.FS
 
 const (
-	appName   = "LLB Command Radio"
-	className = "LLBCommandRadioWindow"
+	appName     = "LCR"
+	appSubtitle = "Linh Lan Bang – Command Radio"
+	windowTitle = "LCR — Linh Lan Bang – Command Radio"
+	className   = "LCRCommandRadioWindow"
 
 	WM_DESTROY        = 0x0002
 	WM_CLOSE          = 0x0010
 	WM_PAINT          = 0x000F
 	WM_LBUTTONUP      = 0x0202
+	WM_LBUTTONDOWN    = 0x0201
+	WM_MOUSEMOVE      = 0x0200
+	WM_MOUSELEAVE     = 0x02A3
+	WM_ERASEBKGND     = 0x0014
+	WM_NCHITTEST      = 0x0084
+	WM_KEYDOWN        = 0x0100
+	WM_KEYUP          = 0x0101
+	WM_SYSKEYDOWN     = 0x0104
+	WM_SYSKEYUP       = 0x0105
 	WM_RBUTTONUP      = 0x0205
 	WM_LBUTTONDBLCLK  = 0x0203
 	WM_XBUTTONDOWN    = 0x020B
@@ -39,31 +50,41 @@ const (
 	WM_TRAY           = WM_APP + 1
 	WM_STATE          = WM_APP + 2
 
-	WH_MOUSE_LL = 14
-	HC_ACTION   = 0
-	XBUTTON1    = 1
-	XBUTTON2    = 2
+	TME_LEAVE = 0x00000002
 
-	WS_OVERLAPPED  = 0x00000000
-	WS_CAPTION     = 0x00C00000
-	WS_SYSMENU     = 0x00080000
-	WS_MINIMIZEBOX = 0x00020000
-	WS_VISIBLE     = 0x10000000
-	WS_CHILD       = 0x40000000
-	WS_BORDER      = 0x00800000
-	SS_CENTER      = 0x00000001
-	SS_NOTIFY      = 0x00000100
-	SS_CENTERIMAGE = 0x00000200
-	ES_CENTER      = 0x0001
-	ES_UPPERCASE   = 0x0008
+	WH_KEYBOARD_LL = 13
+	WH_MOUSE_LL    = 14
+	HC_ACTION      = 0
+	XBUTTON1       = 1
+	XBUTTON2       = 2
+	VK_ESCAPE      = 0x1B
+
+	HTCLIENT  = 1
+	HTCAPTION = 2
+
+	MONITOR_DEFAULTTONEAREST = 2
+	SWP_NOSIZE               = 0x0001
+	SWP_NOZORDER             = 0x0004
+
+	WS_POPUP        = 0x80000000
+	WS_SYSMENU      = 0x00080000
+	WS_CHILD        = 0x40000000
+	WS_BORDER       = 0x00800000
+	WS_EX_APPWINDOW = 0x00040000
+	ES_CENTER       = 0x0001
+	ES_MULTILINE    = 0x0004
+	ES_UPPERCASE    = 0x0008
+	ES_AUTOVSCROLL  = 0x0040
+	EM_SETRECTNP    = 0x00B4
+	WM_SETFONT      = 0x0030
 
 	SW_HIDE       = 0
 	SW_SHOW       = 5
 	SW_SHOWNORMAL = 1
 
 	CW_USEDEFAULT = 0x80000000
-	COLOR_WINDOW  = 5
 	IDC_ARROW     = 32512
+	SRCCOPY       = 0x00CC0020
 
 	NIM_ADD     = 0x00000000
 	NIM_MODIFY  = 0x00000001
@@ -85,25 +106,35 @@ const (
 
 	TRANSPARENT   = 1
 	DT_LEFT       = 0x00000000
+	DT_RIGHT      = 0x00000002
 	DT_CENTER     = 0x00000001
 	DT_VCENTER    = 0x00000004
 	DT_SINGLELINE = 0x00000020
 
-	MB_YESNO        = 0x00000004
-	MB_ICONQUESTION = 0x00000020
-	IDYES           = 6
+	MB_YESNO           = 0x00000004
+	MB_ICONQUESTION    = 0x00000020
+	MB_OK              = 0x00000000
+	MB_ICONEXCLAMATION = 0x00000030
+	MB_ICONASTERISK    = 0x00000040
+	IDYES              = 6
+	DT_END_ELLIPSIS    = 0x00008000
 
-	cmdOpen        = 1001
-	cmdKeyMouse4   = 1002
-	cmdKeyMouse5   = 1003
-	cmdModeHold    = 1004
-	cmdModeToggle  = 1005
-	cmdVoiceOpen   = 1006
-	cmdVoicePTT    = 1007
-	cmdRepair      = 1008
-	cmdUninstall   = 1009
-	cmdExit        = 1010
-	ctrlPairFinish = 2001
+	cmdOpen      = 1001
+	cmdChangeKey = 1002
+	cmdReconnect = 1005
+	cmdUnpair    = 1006
+	cmdUninstall = 1007
+	cmdExit      = 1008
+)
+
+const (
+	controlNone controlID = iota
+	controlPair
+	controlChangeKey
+	controlMinimize
+	controlClose
+	controlReconnect
+	controlUnpair
 )
 
 type POINT struct{ X, Y int32 }
@@ -163,6 +194,32 @@ type MSLLHOOKSTRUCT struct {
 	Time        uint32
 	DwExtraInfo uintptr
 }
+type KBDLLHOOKSTRUCT struct {
+	VkCode      uint32
+	ScanCode    uint32
+	Flags       uint32
+	Time        uint32
+	DwExtraInfo uintptr
+}
+type TRACKMOUSEEVENT struct {
+	CbSize      uint32
+	DwFlags     uint32
+	HWndTrack   uintptr
+	DwHoverTime uint32
+}
+type MONITORINFO struct {
+	CbSize    uint32
+	RcMonitor RECT
+	RcWork    RECT
+	DwFlags   uint32
+}
+type GdiplusStartupInput struct {
+	GdiplusVersion           uint32
+	DebugEventCallback       uintptr
+	SuppressBackgroundThread int32
+	SuppressExternalCodecs   int32
+}
+type controlID uint8
 
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
@@ -191,6 +248,10 @@ var (
 	pSetWindowPos        = user32.NewProc("SetWindowPos")
 	pMessageBox          = user32.NewProc("MessageBoxW")
 	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	pGetWindowRect       = user32.NewProc("GetWindowRect")
+	pMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
+	pGetMonitorInfo      = user32.NewProc("GetMonitorInfoW")
+	pMessageBeep         = user32.NewProc("MessageBeep")
 	pGetCursorPos        = user32.NewProc("GetCursorPos")
 	pCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
 	pAppendMenu          = user32.NewProc("AppendMenuW")
@@ -202,21 +263,39 @@ var (
 	pUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
 	pCallNextHookEx      = user32.NewProc("CallNextHookEx")
 	pGetClientRect       = user32.NewProc("GetClientRect")
+	pScreenToClient      = user32.NewProc("ScreenToClient")
+	pGetKeyNameText      = user32.NewProc("GetKeyNameTextW")
+	pTrackMouseEvent     = user32.NewProc("TrackMouseEvent")
+	pSetCapture          = user32.NewProc("SetCapture")
+	pReleaseCapture      = user32.NewProc("ReleaseCapture")
 
 	pGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
 
-	pCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
-	pDeleteObject     = gdi32.NewProc("DeleteObject")
-	pFillRect         = user32.NewProc("FillRect")
-	pSetTextColor     = gdi32.NewProc("SetTextColor")
-	pSetBkColor       = gdi32.NewProc("SetBkColor")
-	pSetBkMode        = gdi32.NewProc("SetBkMode")
-	pCreateFont       = gdi32.NewProc("CreateFontW")
-	pSelectObject     = gdi32.NewProc("SelectObject")
-	pDrawText         = user32.NewProc("DrawTextW")
+	pCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
+	pDeleteObject           = gdi32.NewProc("DeleteObject")
+	pDeleteDC               = gdi32.NewProc("DeleteDC")
+	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
+	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	pBitBlt                 = gdi32.NewProc("BitBlt")
+	pFillRect               = user32.NewProc("FillRect")
+	pSetTextColor           = gdi32.NewProc("SetTextColor")
+	pSetBkColor             = gdi32.NewProc("SetBkColor")
+	pSetBkMode              = gdi32.NewProc("SetBkMode")
+	pCreateFont             = gdi32.NewProc("CreateFontW")
+	pSelectObject           = gdi32.NewProc("SelectObject")
+	pDrawText               = user32.NewProc("DrawTextW")
 
 	pShellNotifyIcon       = shell32.NewProc("Shell_NotifyIconW")
 	pDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
+
+	gdiplus                = syscall.NewLazyDLL("gdiplus.dll")
+	pGdiplusStartup        = gdiplus.NewProc("GdiplusStartup")
+	pGdiplusShutdown       = gdiplus.NewProc("GdiplusShutdown")
+	pGdipLoadImageFromFile = gdiplus.NewProc("GdipLoadImageFromFile")
+	pGdipDisposeImage      = gdiplus.NewProc("GdipDisposeImage")
+	pGdipCreateFromHDC     = gdiplus.NewProc("GdipCreateFromHDC")
+	pGdipDeleteGraphics    = gdiplus.NewProc("GdipDeleteGraphics")
+	pGdipDrawImageRectI    = gdiplus.NewProc("GdipDrawImageRectI")
 )
 
 func rgb(r, g, b byte) uintptr      { return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16 }
@@ -226,28 +305,54 @@ func setTip(dst []uint16, s string) { u, _ := syscall.UTF16FromString(s); copy(d
 var currentApp *winApp
 
 type winApp struct {
-	mu                             sync.RWMutex
-	cfg                            AppConfig
-	api                            *RadioAPI
-	hwnd                           uintptr
-	edit                           uintptr
-	pairBtn                        uintptr
-	hook                           uintptr
-	paired                         bool
-	pairing                        bool
-	pairError                      string
-	connected                      bool
-	transmitting                   bool
-	quitting                       bool
-	heartbeatCancel                context.CancelFunc
-	radioEvents                    chan bool
-	iconGreen, iconRed, iconGray   uintptr
-	brushBG, brushPanel, brushEdit uintptr
-	fontTitle, fontBody, fontSmall uintptr
+	mu                                             sync.RWMutex
+	cfg                                            AppConfig
+	api                                            *RadioAPI
+	hwnd                                           uintptr
+	edit                                           uintptr
+	mouseHook, keyboardHook                        uintptr
+	paired                                         bool
+	pairing                                        bool
+	pairError                                      string
+	notice                                         string
+	noticeKind                                     noticeKind
+	connected                                      bool
+	transmitting                                   bool
+	capturing                                      bool
+	quitting                                       bool
+	hovered, pressed                               controlID
+	heartbeatCancel                                context.CancelFunc
+	radioEvents                                    chan bool
+	keyEvents                                      chan keyCaptureEvent
+	iconGreen, iconRed, iconGray                   uintptr
+	brushBG, brushPanel, brushEdit                 uintptr
+	brushLine, brushLineDim                        uintptr
+	brushButton, brushButtonBusy, brushButtonError uintptr
+	fontTitle, fontBody, fontSmall                 uintptr
+	gdiplusToken, bannerImage                      uintptr
+}
+
+type noticeKind uint8
+
+const (
+	noticeInfo noticeKind = iota
+	noticeSuccess
+	noticeWarning
+)
+
+type keyCaptureEvent struct {
+	kind     string
+	name     string
+	vk       uint32
+	scanCode uint32
+	flags    uint32
 }
 
 func run(args []string) error {
 	runtime.LockOSThread()
+	if hasArg(args, "--cleanup") {
+		return performCleanup(args)
+	}
 	if hasArg(args, "--uninstall") {
 		return performUninstall()
 	}
@@ -261,7 +366,7 @@ func run(args []string) error {
 			return nil
 		}
 	}
-	a := &winApp{cfg: loadConfig(), radioEvents: make(chan bool, 16)}
+	a := &winApp{cfg: loadConfig(), radioEvents: make(chan bool, 16), keyEvents: make(chan keyCaptureEvent, 8), notice: "READY FOR PAIRING", noticeKind: noticeInfo}
 	a.api = NewRadioAPI(a.cfg.ServerURL, a.cfg.DeviceToken)
 	a.paired = a.cfg.DeviceToken != ""
 	currentApp = a
@@ -270,6 +375,7 @@ func run(args []string) error {
 	}
 	defer a.cleanup()
 	go a.radioWorker()
+	go a.keyCaptureWorker()
 	go a.probeLoop()
 	return a.messageLoop()
 }
@@ -287,70 +393,69 @@ func (a *winApp) init() error {
 	hinst, _, _ := pGetModuleHandle.Call(0)
 	cursor, _, _ := pLoadCursor.Call(0, IDC_ARROW)
 	class := ptr(className)
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hinst, HCursor: cursor, LpszClassName: class}
+	appIcon, _, _ := pLoadImage.Call(hinst, 1, IMAGE_ICON, 0, 0, LR_DEFAULTSIZE)
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: hinst, HCursor: cursor, HIcon: appIcon, HIconSm: appIcon, LpszClassName: class}
 	if r, _, e := pRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
 		return fmt.Errorf("RegisterClassExW: %v", e)
 	}
 
-	style := uintptr(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)
-	hwnd, _, e := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(ptr(appName))), style,
-		CW_USEDEFAULT, CW_USEDEFAULT, 540, 560, 0, 0, hinst, 0)
+	style := uintptr(WS_POPUP | WS_SYSMENU)
+	hwnd, _, e := pCreateWindowEx.Call(WS_EX_APPWINDOW, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(ptr(windowTitle))), style,
+		CW_USEDEFAULT, CW_USEDEFAULT, 540, 610, 0, 0, hinst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("CreateWindowExW: %v", e)
 	}
 	a.hwnd = hwnd
-	dark := int32(1)
-	pDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&dark)), unsafe.Sizeof(dark))
-
-	a.brushBG, _, _ = pCreateSolidBrush.Call(rgb(8, 10, 11))
-	a.brushPanel, _, _ = pCreateSolidBrush.Call(rgb(16, 19, 20))
-	a.brushEdit, _, _ = pCreateSolidBrush.Call(rgb(22, 25, 26))
-	a.fontTitle = createFont(24, 600)
-	a.fontBody = createFont(18, 400)
-	a.fontSmall = createFont(15, 400)
+	a.brushBG, _, _ = pCreateSolidBrush.Call(rgb(5, 6, 7))
+	a.brushPanel, _, _ = pCreateSolidBrush.Call(rgb(14, 12, 13))
+	a.brushEdit, _, _ = pCreateSolidBrush.Call(rgb(22, 17, 18))
+	a.brushLine, _, _ = pCreateSolidBrush.Call(rgb(225, 35, 29))
+	a.brushLineDim, _, _ = pCreateSolidBrush.Call(rgb(92, 23, 22))
+	a.brushButton, _, _ = pCreateSolidBrush.Call(rgb(49, 9, 9))
+	a.brushButtonBusy, _, _ = pCreateSolidBrush.Call(rgb(62, 43, 9))
+	a.brushButtonError, _, _ = pCreateSolidBrush.Call(rgb(67, 12, 12))
+	a.fontTitle = createFont(28, 700, "Bahnschrift SemiCondensed")
+	a.fontBody = createFont(18, 600, "Bahnschrift SemiCondensed")
+	a.fontSmall = createFont(14, 500, "Bahnschrift SemiCondensed")
 
 	// Pair code edit lives only on first-run/re-pair screen.
 	editClass := ptr("EDIT")
 	edit, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(editClass)), uintptr(unsafe.Pointer(ptr(""))),
-		WS_CHILD|WS_BORDER|ES_CENTER|ES_UPPERCASE, 85, 210, 370, 38, hwnd, 0, hinst, 0)
+		WS_CHILD|WS_BORDER|ES_CENTER|ES_MULTILINE|ES_AUTOVSCROLL|ES_UPPERCASE, 85, 328, 370, 38, hwnd, 0, hinst, 0)
 	a.edit = edit
-	// Real Win32 child control for pairing. The 0.2 prototype drew the button
-	// directly onto the parent window; failures were silent and could look like
-	// a dead button. A child STATIC with SS_NOTIFY gives us reliable WM_COMMAND
-	// click delivery while keeping the same minimalist appearance.
-	staticClass := ptr("STATIC")
-	pairBtn, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(staticClass)), uintptr(unsafe.Pointer(ptr("PAIR & FINISH"))),
-		WS_CHILD|SS_NOTIFY|SS_CENTER|SS_CENTERIMAGE, 85, 470, 370, 48, hwnd, ctrlPairFinish, hinst, 0)
-	a.pairBtn = pairBtn
-	if pairBtn != 0 {
-		pSendMessage.Call(pairBtn, 0x0030 /* WM_SETFONT */, a.fontBody, 1)
-	}
+	pSendMessage.Call(edit, WM_SETFONT, a.fontBody, 1)
+	editTextRect := RECT{Left: 8, Top: 9, Right: 362, Bottom: 29}
+	pSendMessage.Call(edit, EM_SETRECTNP, 0, uintptr(unsafe.Pointer(&editTextRect)))
 	a.loadIcons()
+	a.loadBanner()
 	a.addTray()
-	a.installMouseHook()
-	if a.paired {
-		pShowWindow.Call(hwnd, SW_HIDE)
-	} else {
+	a.installInputHooks()
+	if !a.paired {
 		pShowWindow.Call(edit, SW_SHOW)
-		if a.pairBtn != 0 {
-			pShowWindow.Call(a.pairBtn, SW_SHOW)
-		}
-		pShowWindow.Call(hwnd, SW_SHOW)
-		pUpdateWindow.Call(hwnd)
 	}
+	a.showWindow()
+	pUpdateWindow.Call(hwnd)
 	return nil
 }
 
-func createFont(px int32, weight int32) uintptr {
-	face := ptr("Segoe UI")
+func createFont(px int32, weight int32, family string) uintptr {
+	face := ptr(family)
 	h, _, _ := pCreateFont.Call(uintptr(-px), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(face)))
 	return h
 }
 
 func (a *winApp) cleanup() {
 	a.stopHeartbeat()
-	if a.hook != 0 {
-		pUnhookWindowsHookEx.Call(a.hook)
+	for _, hook := range []uintptr{a.mouseHook, a.keyboardHook} {
+		if hook != 0 {
+			pUnhookWindowsHookEx.Call(hook)
+		}
+	}
+	if a.bannerImage != 0 {
+		pGdipDisposeImage.Call(a.bannerImage)
+	}
+	if a.gdiplusToken != 0 {
+		pGdiplusShutdown.Call(a.gdiplusToken)
 	}
 	a.deleteTray()
 	for _, h := range []uintptr{a.iconGreen, a.iconRed, a.iconGray} {
@@ -358,7 +463,7 @@ func (a *winApp) cleanup() {
 			pDestroyIcon.Call(h)
 		}
 	}
-	for _, h := range []uintptr{a.brushBG, a.brushPanel, a.brushEdit, a.fontTitle, a.fontBody, a.fontSmall} {
+	for _, h := range []uintptr{a.brushBG, a.brushPanel, a.brushEdit, a.brushLine, a.brushLineDim, a.brushButton, a.brushButtonBusy, a.brushButtonError, a.fontTitle, a.fontBody, a.fontSmall} {
 		if h != 0 {
 			pDeleteObject.Call(h)
 		}
@@ -387,6 +492,11 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		return r
 	}
 	switch msg {
+	case WM_ERASEBKGND:
+		// paint() owns the complete client area through a memory buffer.
+		return 1
+	case WM_NCHITTEST:
+		return a.hitTest(lParam)
 	case WM_PAINT:
 		a.paint()
 		return 0
@@ -396,27 +506,25 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_LBUTTONUP:
 		x := int32(int16(lParam & 0xffff))
 		y := int32(int16((lParam >> 16) & 0xffff))
-		a.click(x, y)
+		a.releaseControl(x, y)
+		return 0
+	case WM_LBUTTONDOWN:
+		x := int32(int16(lParam & 0xffff))
+		y := int32(int16((lParam >> 16) & 0xffff))
+		a.pressControl(x, y)
+		return 0
+	case WM_MOUSEMOVE:
+		x := int32(int16(lParam & 0xffff))
+		y := int32(int16((lParam >> 16) & 0xffff))
+		a.hoverControl(x, y)
+		return 0
+	case WM_MOUSELEAVE:
+		a.setHovered(controlNone)
 		return 0
 	case WM_CTLCOLORSTATIC, WM_CTLCOLOREDIT:
 		hdc := wParam
-		if lParam == a.pairBtn {
-			a.mu.RLock()
-			pairing, pairErr := a.pairing, a.pairError
-			a.mu.RUnlock()
-			color := rgb(91, 205, 74)
-			if pairing {
-				color = rgb(227, 190, 73)
-			}
-			if pairErr != "" {
-				color = rgb(255, 76, 68)
-			}
-			pSetTextColor.Call(hdc, color)
-			pSetBkColor.Call(hdc, rgb(16, 19, 20))
-			return a.brushPanel
-		}
-		pSetTextColor.Call(hdc, rgb(235, 238, 240))
-		pSetBkColor.Call(hdc, rgb(22, 25, 26))
+		pSetTextColor.Call(hdc, rgb(244, 232, 229))
+		pSetBkColor.Call(hdc, rgb(22, 17, 18))
 		return a.brushEdit
 	case WM_TRAY:
 		switch uint32(lParam) {
@@ -428,7 +536,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		return 0
 	case WM_STATE:
 		a.refreshTray()
-		pInvalidateRect.Call(hwnd, 0, 1)
+		pInvalidateRect.Call(hwnd, 0, 0)
 		return 0
 	case WM_COMMAND:
 		a.handleMenu(uint16(wParam & 0xffff))
@@ -445,59 +553,171 @@ func (a *winApp) paint() {
 	var ps PAINTSTRUCT
 	hdc, _, _ := pBeginPaint.Call(a.hwnd, uintptr(unsafe.Pointer(&ps)))
 	defer pEndPaint.Call(a.hwnd, uintptr(unsafe.Pointer(&ps)))
+	paintDC := hdc
 	var rc RECT
 	pGetClientRect.Call(a.hwnd, uintptr(unsafe.Pointer(&rc)))
+	memDC, _, _ := pCreateCompatibleDC.Call(paintDC)
+	if memDC == 0 {
+		return
+	}
+	defer pDeleteDC.Call(memDC)
+	bitmap, _, _ := pCreateCompatibleBitmap.Call(paintDC, uintptr(rc.Right-rc.Left), uintptr(rc.Bottom-rc.Top))
+	if bitmap == 0 {
+		return
+	}
+	oldBitmap, _, _ := pSelectObject.Call(memDC, bitmap)
+	defer func() {
+		pBitBlt.Call(paintDC, 0, 0, uintptr(rc.Right-rc.Left), uintptr(rc.Bottom-rc.Top), memDC, 0, 0, SRCCOPY)
+		pSelectObject.Call(memDC, oldBitmap)
+		pDeleteObject.Call(bitmap)
+	}()
+	hdc = memDC
 	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), a.brushBG)
 	pSetBkMode.Call(hdc, TRANSPARENT)
 
 	a.mu.RLock()
-	paired, connected, tx, cfg := a.paired, a.connected, a.transmitting, a.cfg
+	paired, connected, tx, pairing, pairErr, capturing, notice, noticeKind, cfg := a.paired, a.connected, a.transmitting, a.pairing, a.pairError, a.capturing, a.notice, a.noticeKind, a.cfg
 	a.mu.RUnlock()
-	drawText(hdc, a.fontTitle, 26, 26, 500, 58, "LLB COMMAND RADIO", rgb(245, 247, 248), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	drawText(hdc, a.fontSmall, 28, 66, 500, 90, "minimal command uplink", rgb(119, 126, 130), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	drawHeader(hdc, a)
 
-	panel := RECT{26, 108, 496, 180}
-	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&panel)), a.brushPanel)
+	panel := RECT{26, 170, 514, 238}
+	drawTechFrame(hdc, a, panel, true)
 	statusText, statusColor := "DISCONNECTED", rgb(125, 130, 133)
 	if connected {
 		statusText, statusColor = "STANDBY", rgb(91, 205, 74)
 	}
 	if tx {
 		statusText, statusColor = "TRANSMITTING", rgb(255, 76, 68)
+		drawTransmitSignal(hdc, a, panel)
 	}
-	drawText(hdc, a.fontBody, 46, 122, 350, 154, statusText, statusColor, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	if paired {
-		drawText(hdc, a.fontSmall, 46, 150, 440, 172, "paired · fail-closed radio gate", rgb(145, 150, 154), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, a.fontSmall, 46, 178, 480, 196, "COMMAND RADIO", rgb(175, 67, 61), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	drawText(hdc, a.fontBody, 46, 196, 350, 226, statusText, statusColor, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	statusDetail := "NOT CONNECTED"
+	if paired && connected {
+		statusDetail = "READY"
 	}
+	if tx {
+		statusDetail = "COMMAND LIVE"
+	}
+	drawText(hdc, a.fontSmall, 290, 198, 490, 224, statusDetail, statusColor, DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
 
 	if !paired {
-		drawText(hdc, a.fontBody, 28, 182, 490, 208, "PAIR CODE", rgb(188, 193, 196), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		drawText(hdc, a.fontSmall, 28, 260, 490, 286, "RADIO KEY", rgb(188, 193, 196), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		drawChoice(hdc, a, 85, 296, 175, 342, "Mouse4", cfg.RadioKey == "Mouse4")
-		drawChoice(hdc, a, 196, 296, 286, 342, "Mouse5", cfg.RadioKey != "Mouse4")
-		drawText(hdc, a.fontSmall, 28, 362, 490, 388, "MODE", rgb(188, 193, 196), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		drawChoice(hdc, a, 85, 398, 190, 444, "Hold", cfg.RadioMode != "Toggle")
-		drawChoice(hdc, a, 211, 398, 326, 444, "Toggle", cfg.RadioMode == "Toggle")
-		a.mu.RLock()
-		pairing, pairErr := a.pairing, a.pairError
-		a.mu.RUnlock()
+		drawSectionLabel(hdc, a, 28, 258, "CONNECT TO COMMAND")
+		drawText(hdc, a.fontSmall, 85, 294, 455, 314, "PAIR CODE", rgb(185, 145, 141), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		drawRadioKey(hdc, a, cfg, capturing, 386)
+		buttonText := "CONNECT RADIO"
 		if pairing {
-			drawText(hdc, a.fontSmall, 300, 362, 490, 388, "PAIRING…", rgb(227, 190, 73), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+			buttonText = "CONNECTING…"
 		} else if pairErr != "" {
-			drawText(hdc, a.fontSmall, 300, 362, 500, 388, pairErr, rgb(255, 76, 68), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+			buttonText = "TRY AGAIN"
 		}
+		drawActionButton(hdc, a, controlPair, RECT{85, 486, 455, 536}, buttonText, pairing)
 	} else {
-		drawText(hdc, a.fontSmall, 28, 210, 490, 236, "RADIO KEY", rgb(188, 193, 196), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		drawChoice(hdc, a, 85, 248, 175, 294, "Mouse4", cfg.RadioKey == "Mouse4")
-		drawChoice(hdc, a, 196, 248, 286, 294, "Mouse5", cfg.RadioKey != "Mouse4")
-		drawText(hdc, a.fontSmall, 28, 320, 490, 346, "COMMAND MODE", rgb(188, 193, 196), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		drawChoice(hdc, a, 85, 358, 190, 404, "Hold", cfg.RadioMode != "Toggle")
-		drawChoice(hdc, a, 211, 358, 326, 404, "Toggle", cfg.RadioMode == "Toggle")
-		note := "Free Mic default: talk to team normally. Hold radio key only when talking to Shotcaller."
-		if cfg.VoiceMode == "PTT" {
-			note = "Discord PTT mode: radio key must also be a Discord PTT key."
+		section := "READY FOR COMMAND"
+		if !connected {
+			section = "CONNECTION LOST"
 		}
-		drawText(hdc, a.fontSmall, 32, 438, 490, 505, note, rgb(145, 150, 154), DT_LEFT)
+		drawSectionLabel(hdc, a, 28, 258, section)
+		headline := "HOLD " + cfg.RadioKey + " TO TALK"
+		if !connected {
+			headline = "RECONNECT TO COMMAND"
+		}
+		drawText(hdc, a.fontBody, 85, 294, 455, 326, headline, statusColor, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		drawRadioKey(hdc, a, cfg, capturing, 350)
+		if connected {
+			drawActionButton(hdc, a, controlMinimize, RECT{85, 452, 263, 506}, "MINIMIZE", false)
+			drawActionButton(hdc, a, controlUnpair, RECT{277, 452, 455, 506}, "UNPAIR", false)
+		} else {
+			drawActionButton(hdc, a, controlReconnect, RECT{85, 452, 263, 506}, "RECONNECT", false)
+			drawActionButton(hdc, a, controlUnpair, RECT{277, 452, 455, 506}, "UNPAIR", false)
+		}
+	}
+	drawTerminalStatus(hdc, a, notice, noticeKind)
+}
+
+func drawHeader(hdc uintptr, a *winApp) {
+	a.drawBanner(hdc)
+	drawWindowButton(hdc, a, controlClose, RECT{490, 6, 520, 28}, "×")
+}
+
+func drawRadioKey(hdc uintptr, a *winApp, cfg AppConfig, capturing bool, top int32) {
+	drawText(hdc, a.fontSmall, 85, top, 455, top+20, "RADIO KEY", rgb(185, 145, 141), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	keyText := cfg.RadioKey
+	if capturing {
+		keyText = "WAITING..."
+	}
+	drawTechFrame(hdc, a, RECT{85, top + 26, 300, top + 72}, !capturing)
+	drawText(hdc, a.fontBody, 97, top+26, 288, top+72, keyText, rgb(255, 82, 67), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	drawActionButton(hdc, a, controlChangeKey, RECT{315, top + 26, 455, top + 72}, "CHANGE", capturing)
+}
+
+func drawTerminalStatus(hdc uintptr, a *winApp, text string, kind noticeKind) {
+	panel := RECT{60, 552, 480, 584}
+	drawTechFrame(hdc, a, panel, false)
+	color := rgb(153, 151, 148)
+	if kind == noticeSuccess {
+		color = rgb(91, 205, 74)
+	}
+	if kind == noticeWarning {
+		color = rgb(255, 112, 99)
+	}
+	drawText(hdc, a.fontSmall, panel.Left+12, panel.Top, panel.Right-12, panel.Bottom, "> "+text, color, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+}
+
+func drawWindowButton(hdc uintptr, a *winApp, id controlID, panel RECT, text string) {
+	a.mu.RLock()
+	hovered, pressed := a.hovered == id, a.pressed == id
+	a.mu.RUnlock()
+	fill := a.brushPanel
+	color := rgb(189, 74, 66)
+	if hovered {
+		fill, color = a.brushButtonError, rgb(255, 190, 182)
+	}
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&panel)), fill)
+	drawTechOutline(hdc, a, panel, hovered || pressed)
+	offset := int32(0)
+	if pressed {
+		offset = 1
+	}
+	drawText(hdc, a.fontBody, panel.Left, panel.Top+offset-1, panel.Right, panel.Bottom+offset, text, color, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+}
+
+func drawSectionLabel(hdc uintptr, a *winApp, x, y int32, text string) {
+	drawRule(hdc, a, x, y+18, 516, false)
+	drawText(hdc, a.fontSmall, x, y, 360, y+20, text, rgb(242, 89, 76), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+}
+
+func drawRule(hdc uintptr, a *winApp, l, y, r int32, bright bool) {
+	brush := a.brushLineDim
+	if bright {
+		brush = a.brushLine
+	}
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{l, y, r, y + 1})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{l, y - 2, l + 48, y + 3})), brush)
+}
+
+func drawTechFrame(hdc uintptr, a *winApp, rc RECT, active bool) {
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), a.brushPanel)
+	drawTechOutline(hdc, a, rc, active)
+}
+
+func drawTechOutline(hdc uintptr, a *winApp, rc RECT, active bool) {
+	brush := a.brushLineDim
+	if active {
+		brush = a.brushLine
+	}
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Left, rc.Top, rc.Right, rc.Top + 1})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Left, rc.Bottom - 1, rc.Right, rc.Bottom})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Left, rc.Top, rc.Left + 1, rc.Bottom})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Right - 1, rc.Top, rc.Right, rc.Bottom})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Left, rc.Top, rc.Left + 16, rc.Top + 3})), brush)
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Right - 16, rc.Bottom - 3, rc.Right, rc.Bottom})), brush)
+}
+
+func drawTransmitSignal(hdc uintptr, a *winApp, rc RECT) {
+	for i := int32(0); i < 3; i++ {
+		inset := 5 + i*4
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{rc.Left + inset, rc.Top + 4, rc.Right - inset, rc.Top + 5})), a.brushLine)
 	}
 }
 
@@ -509,49 +729,158 @@ func drawText(hdc, font uintptr, l, t, r, b int32, text string, color uintptr, f
 	u, _ := syscall.UTF16FromString(text)
 	pDrawText.Call(hdc, uintptr(unsafe.Pointer(&u[0])), uintptr(len(u)-1), uintptr(unsafe.Pointer(&rc)), format)
 }
-func drawChoice(hdc uintptr, a *winApp, l, t, r, b int32, text string, active bool) {
-	brush := a.brushPanel
-	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{l, t, r, b})), brush)
-	c := rgb(185, 190, 193)
-	if active {
-		c = rgb(91, 205, 74)
+func drawActionButton(hdc uintptr, a *winApp, id controlID, panel RECT, text string, disabled bool) {
+	a.mu.RLock()
+	hovered, pressed := a.hovered == id, a.pressed == id
+	a.mu.RUnlock()
+	fill := a.brushButton
+	color := rgb(255, 82, 67)
+	if hovered && !disabled {
+		fill, color = a.brushButtonError, rgb(255, 160, 148)
 	}
-	drawText(hdc, a.fontSmall, l, t, r, b, text, c, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-}
-func drawButton(hdc uintptr, a *winApp, l, t, r, b int32, text string, color uintptr) {
-	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&RECT{l, t, r, b})), a.brushPanel)
-	drawText(hdc, a.fontBody, l, t, r, b, text, color, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	if disabled {
+		fill, color = a.brushPanel, rgb(113, 82, 79)
+	}
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&panel)), fill)
+	drawTechOutline(hdc, a, panel, hovered || pressed)
+	offset := int32(0)
+	if pressed && !disabled {
+		offset = 2
+	}
+	drawText(hdc, a.fontBody, panel.Left, panel.Top+offset, panel.Right, panel.Bottom+offset, text, color, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
-func (a *winApp) click(x, y int32) {
+func (a *winApp) controlAt(x, y int32) controlID {
 	a.mu.RLock()
-	paired := a.paired
+	paired, connected, pairing := a.paired, a.connected, a.pairing
 	a.mu.RUnlock()
+	if inRect(x, y, 490, 6, 520, 28) {
+		return controlClose
+	}
 	if !paired {
 		switch {
-		case inRect(x, y, 85, 296, 175, 342):
-			a.setRadioKey("Mouse4")
-		case inRect(x, y, 196, 296, 286, 342):
-			a.setRadioKey("Mouse5")
-		case inRect(x, y, 85, 398, 190, 444):
-			a.setRadioMode("Hold")
-		case inRect(x, y, 211, 398, 326, 444):
-			a.setRadioMode("Toggle")
+		case inRect(x, y, 315, 412, 455, 458):
+			return controlChangeKey
+		case !pairing && inRect(x, y, 85, 486, 455, 536):
+			return controlPair
 		}
 	} else {
 		switch {
-		case inRect(x, y, 85, 248, 175, 294):
-			a.setRadioKey("Mouse4")
-		case inRect(x, y, 196, 248, 286, 294):
-			a.setRadioKey("Mouse5")
-		case inRect(x, y, 85, 358, 190, 404):
-			a.setRadioMode("Hold")
-		case inRect(x, y, 211, 358, 326, 404):
-			a.setRadioMode("Toggle")
+		case inRect(x, y, 315, 376, 455, 422):
+			return controlChangeKey
+		case connected && inRect(x, y, 85, 452, 263, 506):
+			return controlMinimize
+		case !connected && inRect(x, y, 85, 452, 263, 506):
+			return controlReconnect
+		case inRect(x, y, 277, 452, 455, 506):
+			return controlUnpair
 		}
+	}
+	return controlNone
+}
+
+func (a *winApp) pressControl(x, y int32) {
+	id := a.controlAt(x, y)
+	if id == controlNone {
+		return
+	}
+	a.mu.Lock()
+	a.pressed = id
+	a.mu.Unlock()
+	pSetCapture.Call(a.hwnd)
+	a.invalidateControl(id)
+}
+
+func (a *winApp) releaseControl(x, y int32) {
+	a.mu.Lock()
+	pressed := a.pressed
+	a.pressed = controlNone
+	a.mu.Unlock()
+	pReleaseCapture.Call()
+	a.invalidateControl(pressed)
+	if pressed == controlNone || pressed != a.controlAt(x, y) {
+		return
+	}
+	a.activate(pressed)
+}
+
+func (a *winApp) hoverControl(x, y int32) {
+	tme := TRACKMOUSEEVENT{CbSize: uint32(unsafe.Sizeof(TRACKMOUSEEVENT{})), DwFlags: TME_LEAVE, HWndTrack: a.hwnd}
+	pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
+	a.setHovered(a.controlAt(x, y))
+}
+
+func (a *winApp) setHovered(id controlID) {
+	a.mu.Lock()
+	if a.hovered == id {
+		a.mu.Unlock()
+		return
+	}
+	previous := a.hovered
+	a.hovered = id
+	a.mu.Unlock()
+	a.invalidateControl(previous)
+	a.invalidateControl(id)
+}
+
+func (a *winApp) activate(id controlID) {
+	switch id {
+	case controlPair:
+		go a.pairFromEdit()
+	case controlChangeKey:
+		a.beginKeyCapture()
+	case controlMinimize:
+		pShowWindow.Call(a.hwnd, SW_HIDE)
+	case controlClose:
+		pShowWindow.Call(a.hwnd, SW_HIDE)
+	case controlReconnect:
+		go a.reconnect()
+	case controlUnpair:
+		a.unpair()
 	}
 }
 func inRect(x, y, l, t, r, b int32) bool { return x >= l && x <= r && y >= t && y <= b }
+
+func (a *winApp) invalidateControl(id controlID) {
+	if id == controlNone || a.hwnd == 0 {
+		return
+	}
+	rc := RECT{26, 250, 514, 540}
+	switch id {
+	case controlClose:
+		rc = RECT{490, 6, 520, 28}
+	case controlChangeKey:
+		rc = RECT{80, 340, 460, 465}
+	case controlPair:
+		rc = RECT{80, 480, 460, 540}
+	case controlMinimize, controlReconnect, controlUnpair:
+		rc = RECT{80, 445, 460, 512}
+	}
+	pInvalidateRect.Call(a.hwnd, uintptr(unsafe.Pointer(&rc)), 0)
+}
+
+func (a *winApp) hitTest(lParam uintptr) uintptr {
+	pt := POINT{X: int32(int16(lParam & 0xffff)), Y: int32(int16((lParam >> 16) & 0xffff))}
+	pScreenToClient.Call(a.hwnd, uintptr(unsafe.Pointer(&pt)))
+	if a.controlAt(pt.X, pt.Y) != controlNone {
+		return HTCLIENT
+	}
+	a.mu.RLock()
+	paired := a.paired
+	a.mu.RUnlock()
+	if !paired && inRect(pt.X, pt.Y, 85, 328, 455, 366) {
+		return HTCLIENT // Pair Code edit remains a normal native input control.
+	}
+	if !paired && inRect(pt.X, pt.Y, 85, 412, 300, 458) {
+		return HTCLIENT // Radio Key field is reserved while pairing.
+	}
+	if paired && inRect(pt.X, pt.Y, 85, 376, 300, 422) {
+		return HTCLIENT // Radio Key field is reserved while connected.
+	}
+	// Everything else is intentionally empty LCR background and can drag the
+	// frameless utility without stealing any interactive control click.
+	return HTCAPTION
+}
 
 func (a *winApp) pairFromEdit() {
 	a.mu.Lock()
@@ -561,10 +890,9 @@ func (a *winApp) pairFromEdit() {
 	}
 	a.pairing = true
 	a.pairError = ""
+	a.notice = "CONNECTING TO COMMAND..."
+	a.noticeKind = noticeInfo
 	a.mu.Unlock()
-	if a.pairBtn != 0 {
-		pSetWindowText.Call(a.pairBtn, uintptr(unsafe.Pointer(ptr("PAIRING…"))))
-	}
 	a.postState()
 
 	buf := make([]uint16, 64)
@@ -601,73 +929,221 @@ func (a *winApp) pairFromEdit() {
 	_ = saveConfig(cfg)
 	a.setConnected(true)
 	pShowWindow.Call(a.edit, SW_HIDE)
-	if a.pairBtn != 0 {
-		pShowWindow.Call(a.pairBtn, SW_HIDE)
-	}
-	pShowWindow.Call(a.hwnd, SW_HIDE)
+	a.showWindow()
 }
 
 func (a *winApp) finishPairError(msg string) {
 	a.mu.Lock()
 	a.pairing = false
 	a.pairError = msg
+	a.notice = msg
+	a.noticeKind = noticeWarning
 	a.connected = false
 	a.transmitting = false
 	a.mu.Unlock()
-	if a.pairBtn != 0 {
-		pSetWindowText.Call(a.pairBtn, uintptr(unsafe.Pointer(ptr("TRY AGAIN"))))
-	}
 	a.postState()
 }
 
 func (a *winApp) setRadioKey(k string) {
 	a.mu.Lock()
 	a.cfg.RadioKey = k
-	cfg := a.cfg
-	a.mu.Unlock()
-	_ = saveConfig(cfg)
-	a.postState()
-}
-func (a *winApp) setRadioMode(m string) {
-	a.mu.Lock()
-	a.cfg.RadioMode = m
-	cfg := a.cfg
-	a.mu.Unlock()
-	_ = saveConfig(cfg)
-	a.postState()
-}
-func (a *winApp) setVoiceMode(m string) {
-	a.mu.Lock()
-	a.cfg.VoiceMode = m
+	a.cfg.RadioKeyKind = keyKindMouse
+	a.cfg.RadioKeyCode = 0
 	cfg := a.cfg
 	a.mu.Unlock()
 	_ = saveConfig(cfg)
 	a.postState()
 }
 
-func (a *winApp) installMouseHook() {
-	cb := syscall.NewCallback(mouseHookProc)
+func (a *winApp) beginKeyCapture() {
+	a.mu.Lock()
+	if a.capturing {
+		a.mu.Unlock()
+		return
+	}
+	a.capturing = true
+	a.notice = "PRESS ANY KEY OR MOUSE BUTTON"
+	a.noticeKind = noticeInfo
+	a.mu.Unlock()
+	a.postState()
+}
+
+func (a *winApp) keyCaptureWorker() {
+	for event := range a.keyEvents {
+		a.mu.RLock()
+		capturing := a.capturing
+		a.mu.RUnlock()
+		if !capturing {
+			continue
+		}
+		if event.kind == keyKindKeyboard && event.vk == VK_ESCAPE {
+			a.mu.Lock()
+			a.capturing = false
+			a.notice = "RADIO KEY UNCHANGED"
+			a.noticeKind = noticeInfo
+			a.mu.Unlock()
+			a.postState()
+			continue
+		}
+		name := event.name
+		if event.kind == keyKindKeyboard {
+			name = keyboardKeyName(event.vk, event.scanCode, event.flags)
+		}
+		if name == "" {
+			continue
+		}
+		a.mu.Lock()
+		a.cfg.RadioKey = name
+		a.cfg.RadioKeyKind = event.kind
+		a.cfg.RadioKeyCode = event.vk
+		a.capturing = false
+		a.notice = "RADIO KEY SET: " + name
+		a.noticeKind = noticeSuccess
+		cfg := a.cfg
+		a.mu.Unlock()
+		_ = saveConfig(cfg)
+		a.postState()
+	}
+}
+
+func keyboardKeyName(vk, scanCode, flags uint32) string {
+	if name := friendlyVirtualKey(vk); name != "" {
+		return name
+	}
+	lparam := scanCode << 16
+	if flags&1 != 0 {
+		lparam |= 1 << 24
+	}
+	buf := make([]uint16, 64)
+	n, _, _ := pGetKeyNameText.Call(uintptr(lparam), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n > 0 {
+		return syscall.UTF16ToString(buf[:n])
+	}
+	return ""
+}
+
+func (a *winApp) reconnect() {
+	a.setNotice("RECONNECTING TO COMMAND...", noticeInfo)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	err := a.api.Probe(ctx)
+	cancel()
+	a.setConnected(err == nil)
+}
+
+func (a *winApp) unpair() {
+	a.stopHeartbeat()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	_ = a.api.SetState(ctx, false)
+	cancel()
+	a.mu.Lock()
+	a.paired = false
+	a.pairing = false
+	a.pairError = ""
+	a.notice = "ENTER PAIR CODE"
+	a.noticeKind = noticeInfo
+	a.connected = false
+	a.transmitting = false
+	a.cfg.DeviceToken = ""
+	a.cfg.GuildID = ""
+	a.cfg.UserID = ""
+	cfg := a.cfg
+	a.mu.Unlock()
+	a.api.SetToken("")
+	_ = saveConfig(cfg)
+	pShowWindow.Call(a.edit, SW_SHOW)
+	a.showWindow()
+	a.postState()
+}
+
+func (a *winApp) installInputHooks() {
+	mouseCB := syscall.NewCallback(mouseHookProc)
+	keyboardCB := syscall.NewCallback(keyboardHookProc)
 	hinst, _, _ := pGetModuleHandle.Call(0)
-	h, _, _ := pSetWindowsHookEx.Call(WH_MOUSE_LL, cb, hinst, 0)
-	a.hook = h
+	a.mouseHook, _, _ = pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCB, hinst, 0)
+	a.keyboardHook, _, _ = pSetWindowsHookEx.Call(WH_KEYBOARD_LL, keyboardCB, hinst, 0)
 }
 func mouseHookProc(nCode int, wParam, lParam uintptr) uintptr {
 	a := currentApp
 	if nCode == HC_ACTION && a != nil && lParam != 0 {
 		s := (*MSLLHOOKSTRUCT)(unsafe.Pointer(lParam))
-		xb := uint16((s.MouseData >> 16) & 0xffff)
 		a.mu.RLock()
 		key := a.cfg.RadioKey
+		kind := a.cfg.RadioKeyKind
+		capturing := a.capturing
 		a.mu.RUnlock()
-		matched := (key == "Mouse4" && xb == XBUTTON1) || (key != "Mouse4" && xb == XBUTTON2)
-		if matched {
-			if uint32(wParam) == WM_XBUTTONDOWN {
+		button, down := mouseButton(uint32(wParam), uint16((s.MouseData>>16)&0xffff))
+		if capturing && down {
+			if name := mouseKeyName(button); name != "" {
+				select {
+				case a.keyEvents <- keyCaptureEvent{kind: keyKindMouse, name: name}:
+				default:
+				}
+			}
+		} else if kind == keyKindMouse && mouseKeyName(button) == key {
+			if down {
 				select {
 				case a.radioEvents <- true:
 				default:
 				}
 			}
-			if uint32(wParam) == WM_XBUTTONUP {
+			if !down {
+				select {
+				case a.radioEvents <- false:
+				default:
+				}
+			}
+		}
+	}
+	r, _, _ := pCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
+	return r
+}
+
+func mouseButton(message uint32, xbutton uint16) (uint16, bool) {
+	switch message {
+	case WM_LBUTTONDOWN:
+		return 3, true
+	case WM_LBUTTONUP:
+		return 3, false
+	case 0x0204:
+		return 4, true
+	case 0x0205:
+		return 4, false
+	case 0x0207:
+		return 5, true
+	case 0x0208:
+		return 5, false
+	case WM_XBUTTONDOWN:
+		return xbutton, true
+	case WM_XBUTTONUP:
+		return xbutton, false
+	}
+	return 0, false
+}
+
+func keyboardHookProc(nCode int, wParam, lParam uintptr) uintptr {
+	a := currentApp
+	if nCode == HC_ACTION && a != nil && lParam != 0 {
+		s := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+		message := uint32(wParam)
+		down := message == WM_KEYDOWN || message == WM_SYSKEYDOWN
+		up := message == WM_KEYUP || message == WM_SYSKEYUP
+		a.mu.RLock()
+		capturing := a.capturing
+		kind, keyCode := a.cfg.RadioKeyKind, a.cfg.RadioKeyCode
+		a.mu.RUnlock()
+		if capturing && down {
+			select {
+			case a.keyEvents <- keyCaptureEvent{kind: keyKindKeyboard, vk: s.VkCode, scanCode: s.ScanCode, flags: s.Flags}:
+			default:
+			}
+		} else if kind == keyKindKeyboard && s.VkCode == keyCode {
+			if down {
+				select {
+				case a.radioEvents <- true:
+				default:
+				}
+			}
+			if up {
 				select {
 				case a.radioEvents <- false:
 				default:
@@ -683,21 +1159,12 @@ func (a *winApp) radioWorker() {
 	for down := range a.radioEvents {
 		a.mu.RLock()
 		paired := a.paired
-		mode := a.cfg.RadioMode
 		current := a.transmitting
 		a.mu.RUnlock()
 		if !paired {
 			continue
 		}
-		var target bool
-		if mode == "Toggle" {
-			if !down {
-				continue
-			}
-			target = !current
-		} else {
-			target = down
-		}
+		target := down
 		if target == current {
 			continue
 		}
@@ -772,19 +1239,57 @@ func (a *winApp) probeLoop() {
 }
 func (a *winApp) setConnected(v bool) {
 	a.mu.Lock()
+	wasConnected := a.connected
 	a.connected = v
 	if !v {
 		a.transmitting = false
 	}
+	sound := uintptr(0)
+	if v && !wasConnected {
+		a.notice = "LINK ESTABLISHED"
+		a.noticeKind = noticeSuccess
+		sound = MB_ICONASTERISK
+	}
+	if !v && wasConnected {
+		a.notice = "CONNECTION LOST"
+		a.noticeKind = noticeWarning
+		sound = MB_ICONEXCLAMATION
+	}
+	a.mu.Unlock()
+	a.postState()
+	if sound != 0 {
+		pMessageBeep.Call(sound)
+	}
+}
+
+func (a *winApp) setNotice(text string, kind noticeKind) {
+	a.mu.Lock()
+	a.notice = text
+	a.noticeKind = kind
 	a.mu.Unlock()
 	a.postState()
 }
 func (a *winApp) setState(conn, tx bool) {
 	a.mu.Lock()
+	wasConnected := a.connected
 	a.connected = conn
 	a.transmitting = tx
+	sound := uintptr(0)
+	if conn && !wasConnected {
+		a.notice = "LINK ESTABLISHED"
+		a.noticeKind = noticeSuccess
+		sound = MB_ICONASTERISK
+	}
+	if !conn && wasConnected {
+		a.notice = "CONNECTION LOST"
+		a.noticeKind = noticeWarning
+		sound = MB_ICONEXCLAMATION
+	}
 	a.mu.Unlock()
 	a.postState()
+	if sound != 0 {
+		pMessageBeep.Call(sound)
+	}
 }
 func (a *winApp) postState() {
 	if a.hwnd != 0 {
@@ -793,10 +1298,10 @@ func (a *winApp) postState() {
 }
 
 func (a *winApp) loadIcons() {
-	dir := filepath.Join(os.TempDir(), "LLBCommandRadio-icons")
+	dir := filepath.Join(os.TempDir(), "LCR-assets")
 	_ = os.MkdirAll(dir, 0o700)
 	load := func(name string) uintptr {
-		b, _ := fs.ReadFile(iconFS, "assets/"+name)
+		b, _ := fs.ReadFile(assetFS, "assets/"+name)
 		p := filepath.Join(dir, name)
 		_ = os.WriteFile(p, b, 0o600)
 		h, _, _ := pLoadImage.Call(0, uintptr(unsafe.Pointer(ptr(p))), IMAGE_ICON, 0, 0, LR_LOADFROMFILE|LR_DEFAULTSIZE)
@@ -805,6 +1310,39 @@ func (a *winApp) loadIcons() {
 	a.iconGreen = load("green.ico")
 	a.iconRed = load("red.ico")
 	a.iconGray = load("gray.ico")
+}
+
+func (a *winApp) loadBanner() {
+	input := GdiplusStartupInput{GdiplusVersion: 1}
+	if status, _, _ := pGdiplusStartup.Call(uintptr(unsafe.Pointer(&a.gdiplusToken)), uintptr(unsafe.Pointer(&input)), 0); status != 0 {
+		return
+	}
+	dir := filepath.Join(os.TempDir(), "LCR-assets")
+	_ = os.MkdirAll(dir, 0o700)
+	b, err := fs.ReadFile(assetFS, "assets/lcr-banner.png")
+	if err != nil {
+		return
+	}
+	path := filepath.Join(dir, "lcr-banner.png")
+	if os.WriteFile(path, b, 0o600) != nil {
+		return
+	}
+	if status, _, _ := pGdipLoadImageFromFile.Call(uintptr(unsafe.Pointer(ptr(path))), uintptr(unsafe.Pointer(&a.bannerImage))); status != 0 {
+		a.bannerImage = 0
+	}
+}
+
+func (a *winApp) drawBanner(hdc uintptr) {
+	if a.bannerImage == 0 {
+		return
+	}
+	var graphics uintptr
+	if status, _, _ := pGdipCreateFromHDC.Call(hdc, uintptr(unsafe.Pointer(&graphics))); status != 0 || graphics == 0 {
+		return
+	}
+	defer pGdipDeleteGraphics.Call(graphics)
+	// The banner owns its header rectangle; controls begin below it.
+	pGdipDrawImageRectI.Call(graphics, a.bannerImage, 8, 32, 524, 129)
 }
 func (a *winApp) trayData(icon uintptr) NOTIFYICONDATA {
 	var n NOTIFYICONDATA
@@ -817,12 +1355,12 @@ func (a *winApp) trayData(icon uintptr) NOTIFYICONDATA {
 	a.mu.RLock()
 	conn, tx := a.connected, a.transmitting
 	a.mu.RUnlock()
-	tip := "LLB Command Radio — disconnected"
+	tip := "LCR — disconnected"
 	if conn {
-		tip = "LLB Command Radio — standby"
+		tip = "LCR — standby"
 	}
 	if tx {
-		tip = "LLB Command Radio — transmitting"
+		tip = "LCR — transmitting"
 	}
 	setTip(n.SzTip[:], tip)
 	return n
@@ -853,9 +1391,30 @@ func (a *winApp) deleteTray() {
 	pShellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(&n)))
 }
 func (a *winApp) showWindow() {
+	a.centerWindow()
 	pShowWindow.Call(a.hwnd, SW_SHOWNORMAL)
 	pSetForegroundWindow.Call(a.hwnd)
-	pInvalidateRect.Call(a.hwnd, 0, 1)
+	pInvalidateRect.Call(a.hwnd, 0, 0)
+	pMessageBeep.Call(MB_OK)
+}
+
+func (a *winApp) centerWindow() {
+	monitor, _, _ := pMonitorFromWindow.Call(a.hwnd, MONITOR_DEFAULTTONEAREST)
+	if monitor == 0 {
+		return
+	}
+	mi := MONITORINFO{CbSize: uint32(unsafe.Sizeof(MONITORINFO{}))}
+	if ok, _, _ := pGetMonitorInfo.Call(monitor, uintptr(unsafe.Pointer(&mi))); ok == 0 {
+		return
+	}
+	var window RECT
+	if ok, _, _ := pGetWindowRect.Call(a.hwnd, uintptr(unsafe.Pointer(&window))); ok == 0 {
+		return
+	}
+	width, height := window.Right-window.Left, window.Bottom-window.Top
+	x := mi.RcWork.Left + (mi.RcWork.Right-mi.RcWork.Left-width)/2
+	y := mi.RcWork.Top + (mi.RcWork.Bottom-mi.RcWork.Top-height)/2
+	pSetWindowPos.Call(a.hwnd, 0, uintptr(x), uintptr(y), 0, 0, SWP_NOSIZE|SWP_NOZORDER)
 }
 
 func (a *winApp) showTrayMenu() {
@@ -864,46 +1423,15 @@ func (a *winApp) showTrayMenu() {
 		return
 	}
 	defer pDestroyMenu.Call(menu)
-	appendMenu(menu, MF_STRING, cmdOpen, "Open")
+	appendMenu(menu, MF_STRING, cmdOpen, "Open LCR")
 	appendMenu(menu, MF_SEPARATOR, 0, "")
 	a.mu.RLock()
 	cfg := a.cfg
 	a.mu.RUnlock()
-	f := uintptr(MF_STRING)
-	if cfg.RadioKey == "Mouse4" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdKeyMouse4, "Radio key: Mouse4")
-	f = MF_STRING
-	if cfg.RadioKey != "Mouse4" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdKeyMouse5, "Radio key: Mouse5")
+	appendMenu(menu, MF_STRING, cmdChangeKey, "Radio Key: "+cfg.RadioKey)
 	appendMenu(menu, MF_SEPARATOR, 0, "")
-	f = MF_STRING
-	if cfg.RadioMode != "Toggle" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdModeHold, "Hold to transmit")
-	f = MF_STRING
-	if cfg.RadioMode == "Toggle" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdModeToggle, "Toggle radio")
-	appendMenu(menu, MF_SEPARATOR, 0, "")
-	f = MF_STRING
-	if cfg.VoiceMode != "PTT" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdVoiceOpen, "Local voice: Free Mic")
-	f = MF_STRING
-	if cfg.VoiceMode == "PTT" {
-		f |= MF_CHECKED
-	}
-	appendMenu(menu, f, cmdVoicePTT, "Local voice: Discord PTT")
-	appendMenu(menu, MF_SEPARATOR, 0, "")
-	appendMenu(menu, MF_STRING, cmdRepair, "Re-pair")
-	appendMenu(menu, MF_STRING, cmdUninstall, "Uninstall")
+	appendMenu(menu, MF_STRING, cmdReconnect, "Reconnect")
+	appendMenu(menu, MF_STRING, cmdUnpair, "Unpair")
 	appendMenu(menu, MF_STRING, cmdExit, "Exit")
 	var pt POINT
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
@@ -922,47 +1450,21 @@ func appendMenu(menu, flags, id uintptr, text string) {
 }
 func (a *winApp) handleMenu(id uint16) {
 	switch uintptr(id) {
-	case ctrlPairFinish:
-		go a.pairFromEdit()
 	case cmdOpen:
 		a.showWindow()
-	case cmdKeyMouse4:
-		a.setRadioKey("Mouse4")
-	case cmdKeyMouse5:
-		a.setRadioKey("Mouse5")
-	case cmdModeHold:
-		a.setRadioMode("Hold")
-	case cmdModeToggle:
-		a.setRadioMode("Toggle")
-	case cmdVoiceOpen:
-		a.setVoiceMode("OpenMic")
-	case cmdVoicePTT:
-		a.setVoiceMode("PTT")
-	case cmdRepair:
-		a.mu.Lock()
-		a.paired = false
-		a.pairing = false
-		a.pairError = ""
-		a.connected = false
-		a.transmitting = false
-		a.cfg.DeviceToken = ""
-		cfg := a.cfg
-		a.mu.Unlock()
-		a.api.SetToken("")
-		_ = saveConfig(cfg)
-		pShowWindow.Call(a.edit, SW_SHOW)
-		if a.pairBtn != 0 {
-			pSetWindowText.Call(a.pairBtn, uintptr(unsafe.Pointer(ptr("PAIR & FINISH"))))
-			pShowWindow.Call(a.pairBtn, SW_SHOW)
-		}
+	case cmdChangeKey:
 		a.showWindow()
+		a.beginKeyCapture()
+	case cmdReconnect:
+		go a.reconnect()
+	case cmdUnpair:
+		a.unpair()
 	case cmdUninstall:
-		r, _, _ := pMessageBox.Call(a.hwnd, uintptr(unsafe.Pointer(ptr("Uninstall LLB Command Radio?"))), uintptr(unsafe.Pointer(ptr(appName))), MB_YESNO|MB_ICONQUESTION)
+		r, _, _ := pMessageBox.Call(a.hwnd, uintptr(unsafe.Pointer(ptr("Uninstall LCR?"))), uintptr(unsafe.Pointer(ptr(appName))), MB_YESNO|MB_ICONQUESTION)
 		if r == IDYES {
 			a.quitting = true
 			a.deleteTray()
-			_ = removeInstallRegistration()
-			scheduleSelfDelete()
+			_ = performUninstall()
 			pPostQuitMessage.Call(0)
 		}
 	case cmdExit:

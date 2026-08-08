@@ -7,13 +7,15 @@ import (
 )
 
 type AppConfig struct {
-	ServerURL   string `json:"server_url"`
-	DeviceToken string `json:"device_token"`
-	GuildID     string `json:"guild_id"`
-	UserID      string `json:"user_id"`
-	RadioKey    string `json:"radio_key"`
-	RadioMode   string `json:"radio_mode"`
-	VoiceMode   string `json:"voice_mode"`
+	ServerURL    string `json:"server_url"`
+	DeviceToken  string `json:"device_token"`
+	GuildID      string `json:"guild_id"`
+	UserID       string `json:"user_id"`
+	RadioKey     string `json:"radio_key"`
+	RadioKeyKind string `json:"radio_key_kind,omitempty"`
+	RadioKeyCode uint32 `json:"radio_key_code,omitempty"`
+	RadioMode    string `json:"radio_mode"`
+	VoiceMode    string `json:"voice_mode"`
 }
 
 func defaultConfig() AppConfig {
@@ -30,12 +32,23 @@ func configPath() string {
 	if err != nil || base == "" {
 		base = os.Getenv("APPDATA")
 	}
+	return filepath.Join(base, "LCR", "config.json")
+}
+
+func legacyConfigPath() string {
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		base = os.Getenv("APPDATA")
+	}
 	return filepath.Join(base, "LLBCommandRadio", "config.json")
 }
 
 func loadConfig() AppConfig {
 	cfg := defaultConfig()
 	b, err := os.ReadFile(configPath())
+	if err != nil {
+		b, err = os.ReadFile(legacyConfigPath())
+	}
 	if err != nil {
 		return cfg
 	}
@@ -46,9 +59,11 @@ func loadConfig() AppConfig {
 	if cfg.RadioKey == "" {
 		cfg.RadioKey = "Mouse5"
 	}
-	if cfg.RadioMode == "" {
-		cfg.RadioMode = "Hold"
+	if cfg.RadioKeyKind == "" {
+		cfg.RadioKeyKind = "mouse"
 	}
+	// This release has one deliberate radio mode: hold-to-transmit.
+	cfg.RadioMode = "Hold"
 	if cfg.VoiceMode == "" {
 		cfg.VoiceMode = "OpenMic"
 	}

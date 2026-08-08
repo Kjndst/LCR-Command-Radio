@@ -77,7 +77,7 @@ Current defaults: heartbeat ~250 ms; stale-open timeout ~900 ms. Lost helper/net
 
 ### Client
 
-Single native Windows Go/Win32 executable; no Electron/.NET runtime. The stable host URL is embedded for production builds. UI polish is intentionally deferred until the real Discord path is proven.
+Single native Windows Go/Win32 executable; no Electron/.NET runtime. The stable host URL is embedded for production builds.
 
 ### Host
 
@@ -96,10 +96,10 @@ Reusable host tools remain outside the project. Do not permanently install compi
 
 - **P0 — Protocol/core:** PASS — one-time pairing, signed device token, OPEN/CLOSED gate, heartbeat, fail-closed timeout.
 - **P1 — Lightweight client:** PASS — native Win32 helper; fresh pairing, standby, Mouse5 transmit and release-to-standby manually verified.
-- **P2 — Linux Docker host:** ACTIVE — canonicalize and validate the Docker/libdave host path; first real target is 1 owner + 1 speaker.
-- **P3 — Real Discord relay:** NEXT — verify Shotcaller downlink, gated Lead uplink, reconnect/failure behavior; then scale to 3–4 speaker rooms.
-- **P4 — Audio polish:** add bounded ~60–100 ms pre-roll and ~100–150 ms release tail; benchmark latency and simultaneous Leads.
-- **P5 — UI/release polish:** bring native UI to the approved black minimalist mockup; final error/status polish and optional code signing. No auto-update until justified.
+- **P2 — Linux Docker host:** PASS — reproducible pinned host path and Command Radio runtime validated with 1 owner + 1 speaker.
+- **P3 — Real Discord relay:** PASS — Command-channel downlink and fail-closed gated unit uplink are functionally accepted; legacy modes remain preserved.
+- **P4 — Controlled tester rollout:** NEXT — distribute the single helper EXE to a limited tester group.
+- **P5 — Multi-unit reliability:** validate reconnect/failure behavior, latency, and 3–4 simultaneous speaker rooms before broader release work.
 
 ## Current host smoke
 
@@ -115,6 +115,12 @@ cp host/.env.host.example host/.env.host
 ./host/scripts/status.sh
 ```
 
+`prepare-server.sh` verifies the pinned upstream archive and runs the guarded
+patcher in a disposable `golang:1.23-bookworm` container; no Go toolchain or
+patcher binary is installed on the host. The first Discord smoke is exactly
+one owner bot plus one speaker bot. Keep port `17777` loopback-only during
+smoke; do not expose it publicly.
+
 The generated `server/` tree is derived from the pinned upstream commit and is **not canonical project source**.
 
 ## Non-goals
@@ -127,4 +133,4 @@ The generated `server/` tree is derived from the pinned upstream commit and is *
 - exposing bot/admin complexity to Leads;
 - a governance database, dashboard, harness, agent fleet or parallel continuity system;
 - auto-starting heavy host runtimes when the project is not in use;
-- polishing UI before the real Discord audio path is validated.
+- unbounded product expansion before controlled tester feedback.

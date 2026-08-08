@@ -4,7 +4,7 @@ services:
     build:
       context: ../server
       dockerfile: Dockerfile
-    image: llb-command-radio:0.3.1
+    image: llb-command-radio:0.3.2
     container_name: llb-command-radio
     env_file:
       - .env.host
@@ -17,8 +17,17 @@ services:
       - ./data:/data
     restart: unless-stopped
     init: true
-    pids_limit: 256
+    mem_limit: 1536m
+    cpus: 2.0
+    pids_limit: 128
     stop_grace_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     logging:
       driver: json-file
       options:

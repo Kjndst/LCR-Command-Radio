@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $Client = Join-Path $Root 'client'
-if (-not $Output) { $Output = Join-Path $Root 'bin\LLBCommandRadio.exe' }
+if (-not $Output) { $Output = Join-Path $Root 'bin\LCR.exe' }
 
 $GoCandidates = @(
     'D:\Tools\Go\bin\go.exe',
