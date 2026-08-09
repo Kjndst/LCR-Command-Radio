@@ -960,14 +960,7 @@ func (a *winApp) pairFromEdit() {
 	defer cancel()
 	res, err := a.currentAPI().Pair(ctx, code, "Windows helper")
 	if err != nil {
-		msg := "PAIR FAILED"
-		errText := strings.ToLower(err.Error())
-		if strings.Contains(errText, "401") || strings.Contains(errText, "expired") || strings.Contains(errText, "invalid") {
-			msg = "CODE EXPIRED / INVALID"
-		} else if strings.Contains(errText, "connect") || strings.Contains(errText, "refused") || strings.Contains(errText, "timeout") || strings.Contains(errText, "deadline") {
-			msg = "SERVER UNREACHABLE"
-		}
-		a.finishPairError(msg)
+		a.finishPairError(classifyPairError(err))
 		return
 	}
 	a.mu.Lock()

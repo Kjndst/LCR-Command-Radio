@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-var defaultServerURL = "http://127.0.0.1:17777"
-var buildVersion = "0.2.1-dev"
+var defaultServerURL = "https://lcr.tail7b8791.ts.net"
+var buildVersion = "0.0.1 Beta"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

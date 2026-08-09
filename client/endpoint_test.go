@@ -45,7 +45,9 @@ func TestNormalizeServerURL(t *testing.T) {
 }
 
 func TestLoadConfigPersistsEffectiveServerURL(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("APPDATA", configHome)
 	oldDefault := defaultServerURL
 	defaultServerURL = "https://default.example.net"
 	t.Cleanup(func() { defaultServerURL = oldDefault })
