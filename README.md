@@ -1,12 +1,12 @@
 <p align="center">
   <img src="client/assets/lcr-banner.png"
-       alt="LCR — Linh Lan Bang Command Radio"
+       alt="LCR - Linh Lan Bang Command Radio"
        width="680">
 </p>
 
-# LCR — Linh Lan Bang Command Radio
+# LCR - Linh Lan Bang Command Radio
 
-> **COMMAND — CONNECT — COORDINATE**
+> **COMMAND - CONNECT - COORDINATE**
 
 LCR là hệ thống **Command Radio trên Discord** của Linh Lan Bang, giúp Commander và các Unit Leader liên lạc giữa nhiều voice channel mà không cần gom toàn bộ raid vào một phòng.
 
@@ -119,7 +119,7 @@ Nhả phím là uplink/downlink sẽ đóng ngay; không cần bấm thêm nút 
 
 # 5. Các mode của LCR
 
-## A. Command Radio — mode khuyến nghị cho raid LLB
+## A. Command Radio - mode khuyến nghị cho raid LLB
 
 Đây là mode Command Radio chính của LCR.
 
@@ -193,7 +193,7 @@ Không có Unit-to-Unit relay.
 
 ---
 
-## B. PTT Radio — mọi liên lạc xuyên channel đều cần PTT
+## B. PTT Radio - mọi liên lạc xuyên channel đều cần PTT
 
 PTT Radio dành cho tình huống muốn radio có tính kỷ luật cao hơn: **không ai vô tình broadcast xuyên channel chỉ vì đang nói**.
 
@@ -426,5 +426,5 @@ Unit -> Unit: KHÔNG
 
 ---
 
-**LCR — Linh Lan Bang Command Radio**  
-**COMMAND — CONNECT — COORDINATE**
+**LCR - Linh Lan Bang Command Radio**  
+**COMMAND - CONNECT - COORDINATE**
