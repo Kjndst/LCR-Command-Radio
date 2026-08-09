@@ -18,6 +18,7 @@ run_patcher() {
   local user_args=()
   if [ "$(id -u)" -ne 0 ]; then user_args=(--user "$(id -u):$(id -g)"); fi
   docker run --rm "${user_args[@]}" \
+    -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go \
     -v "$ROOT:/src" -w /src/host/patcher \
     golang:1.23-bookworm go run . -repo /src/server -project /src
 }
