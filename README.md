@@ -144,7 +144,7 @@ Commander **không cần Helper** trong mode này.
 **Không giữ PTT:**
 
 ```text
-Unit Leader → Unit của mình בלבד
+Unit Leader → chỉ Unit của mình
 ```
 
 Command không nghe.
@@ -166,7 +166,7 @@ Unit Leader **không cần đổi role hoặc pair lại** chỉ vì đổi phò
 **Không giữ PTT:**
 
 ```text
-Unit Leader → Command Channel בלבד
+Unit Leader → chỉ Command Channel
 ```
 
 Các Unit không nghe relay.
@@ -202,7 +202,7 @@ PTT Radio dành cho tình huống muốn radio có tính kỷ luật cao hơn: *
 **Không giữ PTT:**
 
 ```text
-Commander → Command Channel בלבד
+Commander → chỉ Command Channel
 ```
 
 Các Unit không nghe relay.
