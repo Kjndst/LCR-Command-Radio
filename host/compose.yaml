@@ -8,6 +8,7 @@ services:
     container_name: llb-command-radio
     env_file:
       - .env.host
+    user: "${LCR_RUNTIME_UID}:${LCR_RUNTIME_GID}"
     environment:
       LLB_RADIO_ADDR: 0.0.0.0:17777
       STORE_PATH: /data/store.yaml
