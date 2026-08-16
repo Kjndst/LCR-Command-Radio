@@ -1,187 +1,250 @@
 <p align="center">
   <img src="client/assets/lcr-banner.png"
-       alt="LCR - Linh Lan Bang Command Radio"
+       alt="LCR — Linh Lan Bang Command Radio"
        width="680">
 </p>
 
-# LCR - Linh Lan Bang Command Radio
+# LCR — Linh Lan Bang Command Radio
 
-> **COMMAND - CONNECT - COORDINATE**
+> **COMMAND — CONNECT — COORDINATE**
 
-LCR là hệ thống **Command Radio trên Discord** của Linh Lan Bang, giúp Commander và các Unit Leader liên lạc giữa nhiều voice channel mà không cần gom toàn bộ raid vào một phòng.
+**Đồng chí đang chỉ huy một raid nhiều tổ, nhưng không muốn dồn tất cả vào một voice channel? LCR được làm ra cho đúng việc đó.**
 
-> **Tài liệu này dành cho thành viên/guildmate sử dụng LCR.**  
-> Không cần cài đặt hay tự vận hành server. Phần server do staff LLB quản lý.
+LCR là một lớp **chỉ huy vô tuyến trên Discord**. Mỗi Unit vẫn ở phòng riêng, nói chuyện với nhau như Discord bình thường; Commander có thể phát lệnh xuống các Unit, còn Unit Leader chỉ mở đường truyền lên Command khi thật sự cần báo cáo.
 
-> **Lưu ý phiên bản:** README này mô tả hệ thống LCR đang được LLB sử dụng hiện tại. Bản public release `v0.0.1-beta` có thể chưa chứa đầy đủ các mode/chức năng mới được mô tả bên dưới.
-
----
-
-## 1. LCR hoạt động như thế nào?
-
-Mô hình cơ bản:
-
-```text
-                    COMMAND CHANNEL
-                 Commander / Command Staff
-                           |
-              +------------+------------+
-              |            |            |
-           UNIT 1        UNIT 2       UNIT 3 ...
-         Speaker 1      Speaker 2     Speaker 3
-            |
-       Unit Leader
-       + members
-```
-
-Trong **Command Radio** và **PTT Radio**:
-
-- Commander làm việc trong **Command Channel**.
-- Mỗi Unit có voice channel riêng và một **Speaker bot** riêng.
-- Unit Leader nói chuyện bình thường với Unit của mình bằng Discord như bình thường.
-- Khi cần liên lạc xuyên channel, LCR sử dụng **Radio Key / PTT**.
-- **Không có Unit-to-Unit relay**: Unit 1 không trực tiếp phát sang Unit 2/3/4.
+Không phải đổi sang phần mềm voice khác. Không phải đưa microphone qua một app lạ. Không phải để toàn bộ raid nghe lẫn nhau.
 
 ---
 
-## 2. Ai cần dùng LCR Helper?
+# I. HƯỚNG DẪN NHANH — ĐỌC PHẦN NÀY LÀ DÙNG ĐƯỢC
 
-### Commander
+## 1. Nếu đồng chí là thành viên Unit
 
-- Trong **Command Radio**: **không cần Helper** để phát lệnh xuống các Unit.
-- Trong **PTT Radio**: cần pair Helper và giữ Radio Key khi muốn phát xuống các Unit.
+Không cần cài gì.
 
-### Unit Leader
+- Vào đúng voice channel của Unit.
+- Nói chuyện với đồng đội bằng Discord như bình thường.
+- Nghe lệnh Commander qua Speaker bot của Unit.
 
-Unit Leader cần Helper khi muốn sử dụng radio xuyên channel:
+Hết.
 
-- đang ở Unit → PTT lên Command;
-- đang ở Command → PTT xuống toàn bộ Unit.
+## 2. Nếu đồng chí là Unit Leader
 
-### Thành viên bình thường
+Cần **LCR Helper (`LCR.exe`)** để mở đường truyền radio lên Command.
 
-Không cần cài Helper.
-
-Chỉ cần vào đúng Unit voice channel và nói chuyện bằng Discord bình thường.
-
----
-
-## 3. Cài và pair LCR Helper
-
-Guildmate chỉ cần file **`LCR.exe`** từ mục Releases hoặc file do staff LLB cung cấp.
-
-**Không cần `LCR-Server.zip`.** Phần đó không dành cho thành viên sử dụng thông thường.
-
-### Pair lần đầu
+Lần đầu:
 
 1. Mở `LCR.exe`.
-2. Trong Discord chạy:
+2. Trong Discord dùng `/radio-pair`.
+3. Nhập Pair Code vào Helper.
+4. Chọn **Radio Key**; mặc định phù hợp nhất thường là Mouse5.
+5. Khi Helper báo **STANDBY**, đồng chí đã sẵn sàng.
 
-   ```text
-   /radio-pair
-   ```
+Khi tác chiến:
 
-3. Bot sẽ cấp một Pair Code ngắn hạn.
-4. Nhập code đó vào LCR Helper ngay.
-5. Chọn Radio Key mong muốn. Mặc định thường là **Mouse5**.
-6. Khi Helper báo **Standby / Connected**, radio đã sẵn sàng.
+```text
+Nói bình thường
+    -> chỉ người trong Unit của đồng chí nghe
 
-### Pair Code có các quy tắc sau
+Giữ Radio Key + nói
+    -> Unit của đồng chí vẫn nghe
+    -> Command cũng nhận được báo cáo
 
-- Code chỉ dùng **một lần**.
-- Code có thời hạn ngắn; hãy nhập ngay sau khi tạo.
-- Code gắn với **đúng Discord account đã tạo code**.
-- Không chia sẻ Pair Code cho người khác.
-- Nếu pair bằng code của account khác, radio của account hiện tại sẽ **không được mở**.
+Nhả Radio Key
+    -> đường truyền lên Command đóng
+```
 
-Nếu Helper báo `Invalid / Expired`, tạo một code mới bằng `/radio-pair` và pair lại.
+Nói ngắn gọn: **không giữ phím = nói nội bộ; giữ phím = báo cáo sở chỉ huy.**
+
+## 3. Nếu đồng chí là Commander
+
+Trong **Command Radio**, Commander ở Command Channel và nói bình thường.
+
+```text
+Commander @ Command
+        |
+        +----> Unit 1
+        +----> Unit 2
+        +----> Unit 3
+        +----> Unit 4
+```
+
+Commander không cần giữ PTT để phát lệnh xuống các Unit trong mode này.
+
+## 4. Quy tắc phải nhớ
+
+```text
+COMMANDER -> các Unit       : CÓ
+UNIT LEADER -> Command      : CÓ, khi giữ Radio Key
+UNIT -> UNIT khác           : KHÔNG
+```
+
+**LCR không biến các Unit thành một phòng voice lớn.** Mỗi Unit vẫn giữ kênh liên lạc riêng.
 
 ---
 
-## 4. Radio Key / trạng thái Helper
+# II. LCR GIẢI QUYẾT VẤN ĐỀ GÌ?
 
-Thông thường:
+Trong raid đông người, Discord thông thường thường buộc chỉ huy chọn một trong hai phương án:
 
-- **Xám / Disconnected** → chưa kết nối được với LCR.
-- **Xanh / Standby** → đã pair, radio đang đóng.
-- **Đỏ / Transmitting** → đang giữ Radio Key và radio đang mở.
+- gom mọi người vào một phòng, dẫn tới nhiều tiếng nói chồng nhau;
+- chia thành nhiều phòng, nhưng Commander không thể phát lệnh đồng thời và Unit Leader khó báo cáo ngược lên Command.
 
-Radio hoạt động theo kiểu **hold-to-transmit**:
+LCR giữ ưu điểm của cả hai cách:
 
-```text
-Giữ Radio Key  -> mở radio
-Nhả Radio Key  -> đóng radio
-```
+- **Unit giữ phòng riêng** để trao đổi chiến thuật cục bộ;
+- **Commander phát lệnh chung** mà không phải nhảy phòng;
+- **Unit Leader báo cáo có chủ đích** bằng Radio Key;
+- thành viên bình thường không phải học thêm quy trình;
+- không có Unit-to-Unit relay trong Command Radio.
 
-Nhả phím là uplink/downlink sẽ đóng ngay; không cần bấm thêm nút khác.
+Mục tiêu của LCR không phải làm Discord phức tạp hơn. Mục tiêu là để đội hình đông người **nghe đúng người, đúng lúc, đúng tuyến chỉ huy**.
 
 ---
 
-# 5. Các mode của LCR
+# III. KHÁC GÌ DISCORD, SHOTCALLER BOT VÀ TEAMSPEAK?
 
-## A. Command Radio - mode khuyến nghị cho raid LLB
+## So với Discord voice thông thường
 
-Đây là mode Command Radio chính của LCR.
+Discord vẫn là nền tảng voice chính. LCR chỉ bổ sung tuyến liên lạc chỉ huy xuyên channel.
 
-### Commander đang ở Command Channel
-
-**Không giữ PTT:**
+**Discord thường:**
 
 ```text
-Commander
-   ↓
-Command Channel
-   ↓
-Unit 1 + Unit 2 + Unit 3 + Unit 4 ...
+Muốn nghe nhau -> thường phải vào cùng voice channel
 ```
 
-Commander nói bình thường và tất cả Unit đã cấu hình sẽ nghe.
-
-Commander **không cần Helper** trong mode này.
-
-### Unit Leader đang ở Unit của mình
-
-**Không giữ PTT:**
+**LCR:**
 
 ```text
-Unit Leader -> chỉ Unit của mình
+Unit vẫn ở phòng riêng
+Commander vẫn ở Command
+Radio nối đúng tuyến cần thiết
 ```
 
-Command không nghe.
+LCR không thay thế Discord; LCR làm cho cấu trúc nhiều phòng của Discord dùng được trong raid có tổ chức.
 
-**Giữ PTT:**
+## So với một bot shotcaller một chiều
+
+Bot shotcaller thông thường có thể giúp một người phát xuống nhiều phòng. LCR đi xa hơn ở phần tổ chức liên lạc:
+
+- Commander downlink tới các Unit;
+- Unit Leader có uplink có kiểm soát về Command;
+- radio gắn với role, vị trí voice và người đã pair;
+- thả Radio Key là đóng uplink;
+- không mở Unit-to-Unit chỉ vì nhiều người cùng dùng bot.
+
+Nói cách khác: **shotcaller bot là loa phát thanh; LCR hướng tới một mạng command-radio.**
+
+## So với TeamSpeak hoặc chuyển sang một phần mềm voice khác
+
+LCR không cố chứng minh mình có codec hay độ trễ tốt hơn TeamSpeak. Lợi thế của LCR nằm ở **workflow**:
+
+- guild không phải chuyển nền tảng;
+- member vẫn dùng Discord quen thuộc;
+- giữ nguyên server, role, channel và cộng đồng đang có;
+- người chơi bình thường không phải cài client voice thứ hai;
+- chỉ Unit Leader/Commander cần chức năng radio mới phải dùng Helper khi mode yêu cầu.
+
+Nếu toàn đội đã vận hành tốt hoàn toàn trên TeamSpeak thì LCR không nhất thiết thay thế nó. LCR phù hợp nhất khi cộng đồng **đã sống trên Discord nhưng cần cơ chế chỉ huy nhiều Unit tốt hơn Discord mặc định**.
+
+---
+
+# IV. TỔ CHỨC ĐỘI HÌNH
+
+Mô hình LCR hiện tại:
 
 ```text
-Unit Leader
-   ├─> Unit của mình
-   └─> Command Channel
+                       COMMAND CHANNEL
+                    Commander / Command Staff
+                              |
+               +--------------+--------------+
+               |              |              |
+            UNIT 1          UNIT 2         UNIT 3 ...
+          Speaker 1        Speaker 2       Speaker 3
+               |              |              |
+        Leader + Member  Leader + Member  Leader + Member
 ```
 
-Nhả PTT → uplink lên Command đóng lại.
+Mỗi Unit dùng một Speaker bot riêng. Hiện tại **bốn Speaker riêng biệt là quy mô đã được live-test**; không coi đây là tuyên bố scale vô hạn.
 
-### Unit Leader di chuyển lên Command Channel
-
-Unit Leader **không cần đổi role hoặc pair lại** chỉ vì đổi phòng.
-
-**Không giữ PTT:**
+Các Unit được cấu hình theo đúng vị trí vật lý:
 
 ```text
-Unit Leader -> chỉ Command Channel
+Unit 1 -> Speaker 1
+Unit 2 -> Speaker 2
+Unit 3 -> Speaker 3
+Unit 4 -> Speaker 4
 ```
 
-Các Unit không nghe relay.
+Có thể chỉ kích hoạt những Unit đang thực sự tham chiến; Unit không dùng không cần tham gia phiên radio.
 
-**Giữ PTT:**
+---
+
+# V. LCR HELPER — BỘ ĐÀM CỦA UNIT LEADER
+
+## Helper làm gì?
+
+`LCR.exe` chỉ điều khiển **cổng radio**.
+
+Helper **không**:
+
+- đăng nhập Discord thay đồng chí;
+- dùng user token;
+- chạy self-bot;
+- lấy hoặc chuyển microphone audio;
+- thay thế Discord client.
+
+Microphone vẫn đi qua Discord như bình thường. Helper chỉ báo cho LCR biết khi nào đồng chí đang giữ Radio Key.
+
+## Trạng thái chính
+
+- **STANDBY** — đã pair, radio đang đóng.
+- **TRANSMITTING** — đang giữ Radio Key, tuyến radio đang mở.
+- **DISCONNECTED** — Helper không có control connection hợp lệ.
+
+Nguyên tắc an toàn là **fail closed**: mất Helper hoặc mất authority thì radio không tự mở.
+
+## Pair Code
+
+Pair Code:
+
+- có thời hạn ngắn;
+- dùng một lần;
+- gắn với đúng Discord account/guild;
+- không nên chia sẻ cho người khác.
+
+Nếu code hết hạn, dùng `/radio-pair` để lấy code mới.
+
+---
+
+# VI. QUY TẮC LIÊN LẠC COMMAND RADIO
+
+## Commander ở Command
 
 ```text
-Unit Leader @ Command
-   ↓
-Unit 1 + Unit 2 + Unit 3 + Unit 4 ...
+Nói bình thường -> tất cả Unit đang được cấu hình
 ```
 
-Nhả PTT → downlink xuống các Unit đóng lại.
+## Unit Leader ở Unit của mình
 
-### Quy tắc quan trọng
+```text
+Không giữ Radio Key -> chỉ Unit của mình
+Giữ Radio Key       -> Unit của mình + Command
+```
+
+## Unit Leader lên Command Channel
+
+```text
+Không giữ Radio Key -> chỉ Command
+Giữ Radio Key       -> Command + các Unit đang được cấu hình
+```
+
+## Trường hợp một người vừa là Commander vừa là Unit Leader
+
+**Quy tắc Commander thắng.**
+
+## Tuyệt đối không có tuyến Unit-to-Unit
 
 ```text
 Unit 1 -X-> Unit 2
@@ -189,242 +252,126 @@ Unit 1 -X-> Unit 3
 Unit 2 -X-> Unit 4
 ```
 
-Không có Unit-to-Unit relay.
+Nếu cần điều phối giữa các Unit, thông tin đi qua tuyến chỉ huy.
 
 ---
 
-## B. PTT Radio - mọi liên lạc xuyên channel đều cần PTT
-
-PTT Radio dành cho tình huống muốn radio có tính kỷ luật cao hơn: **không ai vô tình broadcast xuyên channel chỉ vì đang nói**.
-
-### Commander @ Command
-
-**Không giữ PTT:**
-
-```text
-Commander -> chỉ Command Channel
-```
-
-Các Unit không nghe relay.
-
-**Giữ PTT:**
-
-```text
-Commander
-   ↓
-Unit 1 + Unit 2 + Unit 3 + Unit 4 ...
-```
-
-Nhả PTT → downlink đóng.
-
-### Unit Leader @ Unit
-
-**Không giữ PTT:** chỉ Unit của mình nghe.
-
-**Giữ PTT:** Unit của mình + Command nghe.
-
-### Unit Leader @ Command
-
-**Không giữ PTT:** chỉ người trong Command nghe.
-
-**Giữ PTT:** toàn bộ Unit đã cấu hình nghe.
-
-### Điểm khác Command Radio
-
-```text
-Command Radio
-Commander downlink = Free Mic
-Unit Leader cross-channel = PTT
-
-PTT Radio
-Commander cross-channel = PTT
-Unit Leader cross-channel = PTT
-```
-
-Nếu Commander hay Command Staff muốn tránh accidental broadcast, dùng **PTT Radio**.
-
----
-
-# 6. Legacy Modes
-
-Các mode dưới đây được giữ lại để tương thích và dùng cho tình huống đặc biệt. Với raid LLB thông thường, ưu tiên **Command Radio** hoặc **PTT Radio**.
-
-## One Caller
-
-Một caller trung tâm phát tới các Speaker/room đã bind.
-
-```text
-Caller
- ├─> Room 1
- ├─> Room 2
- └─> Room 3
-```
-
-Phù hợp khi chỉ cần **một chiều từ caller xuống nhiều room**.
-
----
-
-## Many Callers
-
-Nhiều caller/room đủ điều kiện có thể được relay/mix với nhau.
-
-Mode này có thể tạo **cross-talk giữa nhiều room**, bao gồm Unit-to-Unit tùy cấu hình.
-
-Chỉ dùng khi raid leader/staff chủ động yêu cầu.
-
----
-
-## One ↔ Many
-
-Mô hình star hai chiều kiểu legacy:
-
-```text
-              Center
-             /  |  \
-            /   |   \
-         Unit1 Unit2 Unit3
-```
-
-- Center → tất cả Unit.
-- Mỗi Unit → Center.
-- Unit không nghe trực tiếp Unit khác.
-
-Khác với Command Radio/PTT Radio, mode legacy này không dùng cùng mô hình radio-gate theo role/location của LCR mới.
-
----
-
-# 7. Slash Commands
+# VII. LỆNH DISCORD HIỆN TẠI
 
 ## `/radio-pair`
 
-Tạo Pair Code cho LCR Helper.
+Tạo Pair Code cho Helper.
 
-Có thể dùng bởi người có role LCR được cấp quyền như:
-
-- Commander;
-- Unit Leader;
-- hoặc người có cả hai role.
-
-Người không có role phù hợp sẽ bị từ chối.
-
----
+Dành cho Commander hoặc Unit Leader đã được cấu hình phù hợp.
 
 ## `/setup`
 
-Dùng để cấu hình Command Channel, Unit, role và Speaker bot.
+Cấu hình Command Channel, Commander Role, Unit Leader Role và các Unit.
 
-**Guildmate bình thường không cần dùng lệnh này.**
-
-Chỉ staff/người được giao setup nên thay đổi cấu hình.
-
----
+Đây là lệnh của người phụ trách thiết lập. Thành viên bình thường không cần dùng.
 
 ## `/start`
 
-Bắt đầu một phiên LCR.
+Khởi động Command Radio.
 
-Có thể chọn mode phù hợp, ví dụ:
-
-- Command Radio;
-- PTT Radio;
-- các legacy mode.
-
-Nếu chưa có Speaker phù hợp/ready, LCR có thể từ chối start thay vì chạy trong trạng thái lỗi.
-
-Sau `/start`, chờ vài giây để các bot vào đúng voice channel trước khi bắt đầu call chính thức.
-
----
-
-## `/status`
-
-Xem trạng thái/cấu hình hiện tại của LCR.
-
-Nếu có vấn đề về bot vào sai phòng hoặc raid không start được, dùng `/status` trước khi báo staff.
-
----
+Sau khi chạy, chờ các bot vào đúng phòng rồi mới bắt đầu call chính thức.
 
 ## `/stop`
 
-Dừng phiên LCR hiện tại.
+Dừng phiên Command Radio hiện tại và giải phóng voice.
 
-Sau khi `/stop`, muốn dùng radio lại phải `/start` một phiên mới.
-
----
-
-# 8. Chọn mode nào?
-
-### Raid/GvG thông thường
-
-**Command Radio**
-
-Commander có thể call liên tục xuống toàn bộ Unit; Unit Leader chỉ uplink khi chủ động giữ Radio Key.
-
-### Muốn radio kỷ luật, tránh accidental broadcast
-
-**PTT Radio**
-
-Mọi cross-channel communication đều cần giữ PTT.
-
-### Event/flow cũ hoặc setup đặc biệt
-
-Dùng **One Caller / Many Callers / One ↔ Many** khi raid leader hoặc staff yêu cầu.
+> LCR hiện cố ý chỉ công bố những slash command thực sự có trong native runtime hiện tại; tài liệu không liệt kê command chưa được triển khai.
 
 ---
 
-# 9. Troubleshooting nhanh
+# VIII. VÌ SAO KHÔNG CHO UNIT NÓI THẲNG SANG UNIT KHÁC?
 
-### Helper báo `Invalid / Expired`
+Vì radio chiến thuật không có kỷ luật sẽ nhanh chóng biến thành một voice channel đông người theo cách khác.
 
-- Tạo Pair Code mới bằng `/radio-pair`.
-- Nhập ngay.
-- Không dùng lại code cũ.
+LCR giữ tuyến:
 
-### Helper đã pair nhưng PTT không phát
+```text
+Mệnh lệnh chung:     Command -> Units
+Báo cáo chiến thuật: Unit Leader -> Command
+Trao đổi cục bộ:     Member/Leader -> Unit của mình
+```
+
+Điều này giúp Commander nhận thông tin cần thiết mà không bắt toàn bộ raid phải nghe mọi cuộc trao đổi của mọi tổ.
+
+---
+
+# IX. XỬ LÝ NHANH KHI CÓ SỰ CỐ
+
+## Pair không được
+
+1. Đảm bảo đồng chí có role phù hợp.
+2. Tạo code mới bằng `/radio-pair`.
+3. Nhập ngay vào Helper.
+4. Không tái sử dụng code cũ.
+
+## Helper đã pair nhưng giữ Radio Key không lên Command
 
 Kiểm tra:
 
-- Helper đang **Connected / Standby**;
-- Radio Key đúng;
-- Pair được tạo bởi **đúng Discord account đang nói**;
-- bạn có Commander hoặc Unit Leader Role phù hợp.
+- Helper đang ở **STANDBY** trước khi giữ phím;
+- đúng Radio Key;
+- Discord account đang nói chính là account đã pair;
+- đồng chí đang ở đúng Unit hoặc Command Channel;
+- role Unit Leader/Commander đã được cấu hình đúng.
 
-### Bot chưa vào đủ room sau `/start`
+## `/start` bị từ chối
 
-Chờ vài giây rồi kiểm tra `/status`.
+Không tự sửa lung tung giữa trận.
 
-Nếu vẫn sai, báo staff thay vì tự sửa `/setup` khi bạn không phụ trách cấu hình.
+Báo người phụ trách `/setup` kiểm tra Command Channel, role và các Unit đang active. LCR ưu tiên từ chối start khi cấu hình không hợp lệ thay vì chạy nửa đúng nửa sai.
 
-### `/start` không chạy
+## Bot vào voice hơi lâu
 
-Có thể chưa có Speaker bot phù hợp hoặc setup chưa đủ điều kiện. Đây là fail-safe bình thường; báo staff kiểm tra.
-
-### Không chắc đang dùng mode nào
-
-Dùng `/status` hoặc hỏi Commander/staff trước khi raid bắt đầu.
+Chờ vài giây trước khi bắt đầu call. Việc join voice có thể cần thêm thời gian tùy Discord/network; đừng spam `/start` liên tục.
 
 ---
 
-# 10. Quy tắc radio ngắn gọn
+# X. BẢO MẬT VÀ NGUYÊN TẮC VẬN HÀNH
+
+- LCR dùng bot Discord chính thức, không dùng self-bot.
+- Không đưa Discord user token cho Helper.
+- Không chia sẻ Pair Code.
+- Raw control API của server phải giữ loopback-only.
+- Một bộ production identity chỉ được có một runtime sở hữu tại cùng thời điểm.
+- Bốn Speaker là quy mô đã live-proven hiện tại.
+
+---
+
+# XI. DÀNH CHO NGƯỜI CHỈ MUỐN NHỚ 20 GIÂY
 
 ```text
-COMMAND RADIO
-Commander @ Command: nói bình thường -> tất cả Unit
-Leader @ Unit:        nói bình thường -> own Unit
-Leader @ Unit + PTT:  own Unit + Command
-Leader @ Command:     nói bình thường -> Command only
-Leader @ Command+PTT: tất cả Unit
+THÀNH VIÊN
+Vào Unit -> nói Discord bình thường -> không cần cài gì.
 
-PTT RADIO
-Commander @ Command: nói bình thường -> Command only
-Commander + PTT:     tất cả Unit
-Leader @ Unit + PTT: Command
-Leader @ Command+PTT:tất cả Unit
+UNIT LEADER
+Nói thường  -> Unit.
+Giữ Radio   -> Unit + Command.
+Nhả Radio   -> đóng uplink.
 
-COMMAND/PTT RADIO
-Unit -> Unit: KHÔNG
+COMMANDER
+Ở Command, nói bình thường -> các Unit đang active.
+
+NGUYÊN TẮC
+Unit -> Unit khác: KHÔNG.
+Helper chỉ mở cổng radio; microphone vẫn do Discord xử lý.
 ```
 
 ---
 
-**LCR - Linh Lan Bang Command Radio**  
-**COMMAND - CONNECT - COORDINATE**
+# XII. PHẠM VI PHIÊN BẢN
+
+LCR đang được phát triển và kiểm chứng theo từng gate. Native server mới sử dụng Rust/Twilight/Songbird; Windows Helper V2 được viết lại bằng Rust với giao diện Win32 native. Các claim trong README này cố ý giới hạn ở phạm vi đã được triển khai hoặc live-proven.
+
+Repo public phục vụ tài liệu và các artifact được công bố. Server production/source mới có thể được phát triển trên private authority trước khi một phần được đưa ra public.
+
+---
+
+<p align="center"><strong>LCR — LINH LAN BANG COMMAND RADIO</strong></p>
+<p align="center"><strong>COMMAND — CONNECT — COORDINATE</strong></p>
+
+**Chào thân ái và quyết thắng!**
