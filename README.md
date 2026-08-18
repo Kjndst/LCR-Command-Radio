@@ -1,12 +1,12 @@
 <p align="center">
   <img src="client/assets/lcr-banner.png"
-       alt="LCR — Linh Lan Bang Command Radio"
+       alt="LCR - Linh Lan Bang Command Radio"
        width="680">
 </p>
 
-# LCR — Linh Lan Bang Command Radio
+# LCR - Linh Lan Bang Command Radio
 
-> **COMMAND — CONNECT — COORDINATE**
+> **COMMAND - CONNECT - COORDINATE**
 
 **Đồng chí đang chỉ huy một raid nhiều tổ, nhưng không muốn dồn tất cả vào một voice channel? LCR được làm ra cho đúng việc đó.**
 
@@ -16,7 +16,7 @@ Không phải đổi sang phần mềm voice khác. Không phải đưa micropho
 
 ---
 
-# I. HƯỚNG DẪN NHANH — ĐỌC PHẦN NÀY LÀ DÙNG ĐƯỢC
+# I. HƯỚNG DẪN NHANH - ĐỌC PHẦN NÀY LÀ DÙNG ĐƯỢC
 
 ## 1. Nếu đồng chí là thành viên Unit
 
@@ -181,7 +181,7 @@ Có thể chỉ kích hoạt những Unit đang thực sự tham chiến; Unit k
 
 ---
 
-# V. LCR HELPER — BỘ ĐÀM CỦA UNIT LEADER
+# V. LCR HELPER - BỘ ĐÀM CỦA UNIT LEADER
 
 ## Helper làm gì?
 
@@ -199,9 +199,9 @@ Microphone vẫn đi qua Discord như bình thường. Helper chỉ báo cho LCR
 
 ## Trạng thái chính
 
-- **STANDBY** — đã pair, radio đang đóng.
-- **TRANSMITTING** — đang giữ Radio Key, tuyến radio đang mở.
-- **DISCONNECTED** — Helper không có control connection hợp lệ.
+- **STANDBY** - đã pair, radio đang đóng.
+- **TRANSMITTING** - đang giữ Radio Key, tuyến radio đang mở.
+- **DISCONNECTED** - Helper không có control connection hợp lệ.
 
 Nguyên tắc an toàn là **fail closed**: mất Helper hoặc mất authority thì radio không tự mở.
 
@@ -371,7 +371,7 @@ Repo public phục vụ tài liệu và các artifact được công bố. Serve
 
 ---
 
-<p align="center"><strong>LCR — LINH LAN BANG COMMAND RADIO</strong></p>
-<p align="center"><strong>COMMAND — CONNECT — COORDINATE</strong></p>
+<p align="center"><strong>LCR - LINH LAN BANG COMMAND RADIO</strong></p>
+<p align="center"><strong>COMMAND - CONNECT - COORDINATE</strong></p>
 
 **Chào thân ái và quyết thắng!**
