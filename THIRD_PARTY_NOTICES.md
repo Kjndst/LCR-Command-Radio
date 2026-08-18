@@ -14,14 +14,14 @@ LCR is not affiliated with upstream or the organizations named below.
 
 ## Direct source dependencies
 
-- `github.com/disgoorg/disgo` `v0.19.3` — Apache License 2.0.
-- `github.com/disgoorg/godave/golibdave` `v0.3.0` — Apache License 2.0.
-- Discord `libdave` `v1.1.1/cpp` — MIT License. The Docker source requests
+- `github.com/disgoorg/disgo` `v0.19.3` - Apache License 2.0.
+- `github.com/disgoorg/godave/golibdave` `v0.3.0` - Apache License 2.0.
+- Discord `libdave` `v1.1.1/cpp` - MIT License. The Docker source requests
   `v1.1.1`; the upstream tag name includes `/cpp`.
 - `github.com/hraban/opus`
-  `v0.0.0-20260708213942-bde8e4304501` — MIT License. Its license text is in
+  `v0.0.0-20260708213942-bde8e4304501` - MIT License. Its license text is in
   [`LICENSES/hraban-opus-MIT.txt`](LICENSES/hraban-opus-MIT.txt).
-- `libopus` — BSD-style COPYING. The exact package version in the runtime image
+- `libopus` - BSD-style COPYING. The exact package version in the runtime image
   is recorded only where the image inventory can identify it; source builds use
   an unpinned distribution package input.
 
