@@ -66,6 +66,31 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
     let mut lcr_reconnect_phase_seq = 0_u64;
 
     while let Ok(msg) = rx.recv_async().await {
+        #[cfg(feature = "lcr-controlled-fault")]
+        let (msg, lcr_force_first_interconnect_failure) = match msg {
+            CoreMessage::LcrControlledReconnect(
+                probe,
+                force_first_interconnect_failure,
+            ) => {
+                let connection_present = connection.is_some();
+
+                let _ = probe.send(connection_present);
+
+                if !connection_present {
+                    continue;
+                }
+
+                (
+                    CoreMessage::Reconnect,
+                    force_first_interconnect_failure,
+                )
+            },
+            msg => (msg, false),
+        };
+
+        #[cfg(not(feature = "lcr-controlled-fault"))]
+        let msg = msg;
+
         match msg {
             CoreMessage::ConnectWithResult(info, tx) => {
                 config = if let Some(new_config) = next_config.take() {
@@ -202,7 +227,20 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                         lcr_reconnect_phase_seq
                     );
 
-                    let full_connect = match conn.reconnect(&config).await {
+                    #[cfg(feature = "lcr-controlled-fault")]
+                    let first_reconnect = if lcr_force_first_interconnect_failure {
+                        eprintln!("LCR_G3_RECONNECT_PHASE seq={lcr_reconnect_phase_seq} phase=FORCED_INTERCONNECT_FAILURE");
+                        Err(ConnectionError::InterconnectFailure(
+                            error::Recipient::AuxNetwork,
+                        ))
+                    } else {
+                        conn.reconnect(&config).await
+                    };
+
+                    #[cfg(not(feature = "lcr-controlled-fault"))]
+                    let first_reconnect = conn.reconnect(&config).await;
+
+                    let full_connect = match first_reconnect {
                         Ok(()) => {
                             #[cfg(feature = "lcr-controlled-fault")]
                             eprintln!(
@@ -323,14 +361,8 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                 }
             },
             #[cfg(feature = "lcr-controlled-fault")]
-            CoreMessage::LcrControlledReconnect(probe) => {
-                let connection_present = connection.is_some();
-
-                let _ = probe.send(connection_present);
-
-                if connection_present {
-                    let _ = interconnect.core.send(CoreMessage::Reconnect);
-                }
+            CoreMessage::LcrControlledReconnect(_, _) => {
+                unreachable!("controlled reconnect is normalized before dispatch")
             },
             CoreMessage::FullReconnect =>
                 if let Some(conn) = connection.take() {

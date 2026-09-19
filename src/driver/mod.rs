@@ -166,19 +166,37 @@ impl Driver {
     #[cfg(feature = "lcr-controlled-fault")]
     #[doc(hidden)]
     pub async fn lcr_controlled_reconnect(&mut self) -> LcrControlledReconnectDiagnostic {
+        self.lcr_controlled_reconnect_inner(false).await
+    }
+
+    /// Controlled diagnostic that forces the first native reconnect attempt
+    /// through the existing InterconnectFailure(AuxNetwork) rebuild branch.
+    #[cfg(feature = "lcr-controlled-fault")]
+    #[doc(hidden)]
+    pub async fn lcr_controlled_reconnect_force_first_interconnect_failure(
+        &mut self,
+    ) -> LcrControlledReconnectDiagnostic {
+        self.lcr_controlled_reconnect_inner(true).await
+    }
+
+    #[cfg(feature = "lcr-controlled-fault")]
+    async fn lcr_controlled_reconnect_inner(
+        &mut self,
+        force_first_interconnect_failure: bool,
+    ) -> LcrControlledReconnectDiagnostic {
         let (probe_tx, probe_rx) = flume::bounded(1);
 
         let sender_alive_before_send =
-            match self
-                .sender
-                .send(CoreMessage::LcrControlledReconnect(probe_tx))
-            {
+            match self.sender.send(CoreMessage::LcrControlledReconnect(
+                probe_tx,
+                force_first_interconnect_failure,
+            )) {
                 Ok(()) => true,
-                Err(SendError(CoreMessage::LcrControlledReconnect(probe_tx))) => {
+                Err(SendError(CoreMessage::LcrControlledReconnect(probe_tx, force))) => {
                     self.restart_inner();
 
                     self.sender
-                        .send(CoreMessage::LcrControlledReconnect(probe_tx))
+                        .send(CoreMessage::LcrControlledReconnect(probe_tx, force))
                         .expect("fresh controlled-fault core accepts diagnostic request");
 
                     false
@@ -195,7 +213,7 @@ impl Driver {
             )
             .await
             .ok()
-            .and_then(|result| result.ok());
+            .and_then(std::result::Result::ok);
 
         LcrControlledReconnectDiagnostic {
             sender_alive_before_send,
@@ -413,7 +431,8 @@ async fn lcr_controlled_reconnect_sends_native_reconnect_message() {
             .await
             .expect("controlled reconnect message")
         {
-            CoreMessage::LcrControlledReconnect(probe) => {
+            CoreMessage::LcrControlledReconnect(probe, force) => {
+                assert!(!force);
                 probe.send(true).expect("controlled reconnect probe response");
             }
             _ => panic!("unexpected controlled reconnect message"),
@@ -425,6 +444,102 @@ async fn lcr_controlled_reconnect_sends_native_reconnect_message() {
 
     assert!(diagnostic.sender_alive_before_send);
     assert_eq!(diagnostic.core_connection_present, Some(true));
+}
+
+#[cfg(all(test, feature = "lcr-controlled-fault"))]
+#[tokio::test]
+async fn lcr_controlled_reconnect_can_force_first_interconnect_failure() {
+    let (sender, receiver) = flume::unbounded();
+
+    let mut driver = Driver {
+        config: Config::default(),
+        self_mute: false,
+        sender,
+        #[cfg(feature = "builtin-queue")]
+        queue: Some(TrackQueue::default()),
+    };
+
+    let responder = async {
+        match receiver
+            .recv_async()
+            .await
+            .expect("controlled reconnect message")
+        {
+            CoreMessage::LcrControlledReconnect(probe, force) => {
+                assert!(force);
+                probe.send(true).expect("controlled reconnect probe response");
+            }
+            _ => panic!("unexpected controlled reconnect message"),
+        }
+    };
+
+    let (diagnostic, ()) = tokio::join!(
+        driver.lcr_controlled_reconnect_force_first_interconnect_failure(),
+        responder
+    );
+
+    assert!(diagnostic.sender_alive_before_send);
+    assert_eq!(diagnostic.core_connection_present, Some(true));
+}
+
+#[cfg(all(test, feature = "lcr-controlled-fault"))]
+#[tokio::test]
+async fn lcr_controlled_reconnect_force_is_request_local() {
+    let (sender, receiver) = flume::unbounded();
+
+    let mut driver = Driver {
+        config: Config::default(),
+        self_mute: false,
+        sender,
+        #[cfg(feature = "builtin-queue")]
+        queue: Some(TrackQueue::default()),
+    };
+
+    let responder = async {
+        match receiver
+            .recv_async()
+            .await
+            .expect("forced controlled reconnect message")
+        {
+            CoreMessage::LcrControlledReconnect(probe, force) => {
+                assert!(force);
+                probe
+                    .send(true)
+                    .expect("forced controlled reconnect probe response");
+            }
+            _ => panic!("unexpected forced controlled reconnect message"),
+        }
+
+        match receiver
+            .recv_async()
+            .await
+            .expect("normal controlled reconnect message")
+        {
+            CoreMessage::LcrControlledReconnect(probe, force) => {
+                assert!(!force);
+                probe
+                    .send(true)
+                    .expect("normal controlled reconnect probe response");
+            }
+            _ => panic!("unexpected normal controlled reconnect message"),
+        }
+    };
+
+    let requests = async {
+        let forced = driver
+            .lcr_controlled_reconnect_force_first_interconnect_failure()
+            .await;
+
+        assert!(forced.sender_alive_before_send);
+        assert_eq!(forced.core_connection_present, Some(true));
+
+        let normal = driver.lcr_controlled_reconnect().await;
+
+        assert!(normal.sender_alive_before_send);
+        assert_eq!(normal.core_connection_present, Some(true));
+    };
+
+    let ((), ()) = tokio::join!(requests, responder);
 }
 
 #[cfg(all(test, feature = "lcr-controlled-fault"))]

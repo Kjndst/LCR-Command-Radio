@@ -65,7 +65,7 @@ pub enum CoreMessage {
     Mute(bool),
     Reconnect,
     #[cfg(feature = "lcr-controlled-fault")]
-    LcrControlledReconnect(Sender<bool>),
+    LcrControlledReconnect(Sender<bool>, bool),
     FullReconnect,
     RebuildInterconnect,
     #[cfg(test)]
