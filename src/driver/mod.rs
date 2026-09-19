@@ -51,6 +51,7 @@ use crate::{
     tracks::{Track, TrackHandle},
     Config,
     ConnectionInfo,
+    CoreEvent,
     Event,
     EventHandler,
 };
@@ -62,11 +63,19 @@ use core::{
 use flume::{r#async::RecvFut, SendError, Sender};
 /// Opus encoder bitrate settings.
 pub use opus2::{self as opus, Bitrate};
+
+#[cfg(feature = "lcr-controlled-fault")]
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LcrControlledReconnectDiagnostic {
+    pub sender_alive_before_send: bool,
+    pub core_connection_present: Option<bool>,
+}
 #[cfg(feature = "builtin-queue")]
 use std::time::Duration;
 #[allow(unused_imports)]
 pub use tasks::disposal::DisposalThread;
-use tasks::message::CoreMessage;
+use tasks::message::{CoreMessage, PersistentCoreEvent};
 use tracing::instrument;
 
 /// The control object for a Discord voice connection, handling connection,
@@ -148,6 +157,50 @@ impl Driver {
     #[instrument(skip(self))]
     pub fn leave(&mut self) {
         self.send(CoreMessage::Disconnect);
+    }
+
+    /// Controlled fault-injection diagnostic for external transport recovery tests.
+    ///
+    /// Returns proof-only facts about the driver core immediately before the
+    /// native reconnect algorithm runs.
+    #[cfg(feature = "lcr-controlled-fault")]
+    #[doc(hidden)]
+    pub async fn lcr_controlled_reconnect(&mut self) -> LcrControlledReconnectDiagnostic {
+        let (probe_tx, probe_rx) = flume::bounded(1);
+
+        let sender_alive_before_send =
+            match self
+                .sender
+                .send(CoreMessage::LcrControlledReconnect(probe_tx))
+            {
+                Ok(()) => true,
+                Err(SendError(CoreMessage::LcrControlledReconnect(probe_tx))) => {
+                    self.restart_inner();
+
+                    self.sender
+                        .send(CoreMessage::LcrControlledReconnect(probe_tx))
+                        .expect("fresh controlled-fault core accepts diagnostic request");
+
+                    false
+                }
+                Err(_) => {
+                    unreachable!("controlled reconnect send returns its original message")
+                }
+            };
+
+        let core_connection_present =
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                probe_rx.recv_async(),
+            )
+            .await
+            .ok()
+            .and_then(|result| result.ok());
+
+        LcrControlledReconnectDiagnostic {
+            sender_alive_before_send,
+            core_connection_present,
+        }
     }
 
     /// Sets whether the current connection is to be muted.
@@ -257,6 +310,24 @@ impl Driver {
         self.send(CoreMessage::AddEvent(EventData::new(event, action)));
     }
 
+    /// Attach a persistent core event handler to this driver.
+    ///
+    /// Unlike [`Self::add_global_event`], this subscription is replayed when
+    /// Songbird rebuilds only its volatile event processor. This does not
+    /// preserve the subscription across a full Driver/core-task restart.
+    ///
+    /// This API is intentionally limited to [`CoreEvent`] listeners.
+    #[instrument(skip(self, action))]
+    pub fn add_persistent_core_event<F: EventHandler + 'static>(
+        &mut self,
+        event: CoreEvent,
+        action: F,
+    ) {
+        self.send(CoreMessage::AddPersistentCoreEvent(
+            PersistentCoreEvent::new(event, action),
+        ));
+    }
+
     /// Removes all global event handlers from an audio context.
     #[instrument(skip(self))]
     pub fn remove_all_global_events(&mut self) {
@@ -323,6 +394,70 @@ impl Driver {
     }
 }
 
+#[cfg(all(test, feature = "lcr-controlled-fault"))]
+#[tokio::test]
+async fn lcr_controlled_reconnect_sends_native_reconnect_message() {
+    let (sender, receiver) = flume::unbounded();
+
+    let mut driver = Driver {
+        config: Config::default(),
+        self_mute: false,
+        sender,
+        #[cfg(feature = "builtin-queue")]
+        queue: Some(TrackQueue::default()),
+    };
+
+    let responder = async {
+        match receiver
+            .recv_async()
+            .await
+            .expect("controlled reconnect message")
+        {
+            CoreMessage::LcrControlledReconnect(probe) => {
+                probe.send(true).expect("controlled reconnect probe response");
+            }
+            _ => panic!("unexpected controlled reconnect message"),
+        }
+    };
+
+    let (diagnostic, ()) =
+        tokio::join!(driver.lcr_controlled_reconnect(), responder);
+
+    assert!(diagnostic.sender_alive_before_send);
+    assert_eq!(diagnostic.core_connection_present, Some(true));
+}
+
+#[cfg(all(test, feature = "lcr-controlled-fault"))]
+#[tokio::test]
+async fn lcr_controlled_reconnect_reports_empty_live_core() {
+    let mut driver = Driver::new(Config::default());
+
+    let diagnostic = driver.lcr_controlled_reconnect().await;
+
+    assert!(diagnostic.sender_alive_before_send);
+    assert_eq!(diagnostic.core_connection_present, Some(false));
+}
+
+#[cfg(all(test, feature = "lcr-controlled-fault"))]
+#[tokio::test]
+async fn lcr_controlled_reconnect_reports_dead_sender_restart() {
+    let (sender, receiver) = flume::unbounded();
+
+    drop(receiver);
+
+    let mut driver = Driver {
+        config: Config::default(),
+        self_mute: false,
+        sender,
+        #[cfg(feature = "builtin-queue")]
+        queue: Some(TrackQueue::default()),
+    };
+
+    let diagnostic = driver.lcr_controlled_reconnect().await;
+
+    assert!(!diagnostic.sender_alive_before_send);
+    assert_eq!(diagnostic.core_connection_present, Some(false));
+}
 impl Default for Driver {
     fn default() -> Self {
         Self::new(Config::default())

@@ -60,6 +60,10 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
     let mut interconnect = start_internals(tx, &config);
     let mut retrying = None;
     let mut attempt_idx = 0;
+    let mut persistent_core_events = Vec::new();
+
+    #[cfg(feature = "lcr-controlled-fault")]
+    let mut lcr_reconnect_phase_seq = 0_u64;
 
     while let Ok(msg) = rx.recv_async().await {
         match msg {
@@ -159,49 +163,173 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             CoreMessage::AddEvent(evt) => {
                 drop(interconnect.events.send(EventMessage::AddGlobalEvent(evt)));
             },
+            CoreMessage::AddPersistentCoreEvent(evt) => {
+                let event_data = evt.event_data();
+                persistent_core_events.push(evt);
+                drop(
+                    interconnect
+                        .events
+                        .send(EventMessage::AddGlobalEvent(event_data)),
+                );
+            },
             CoreMessage::RemoveGlobalEvents => {
+                persistent_core_events.clear();
                 drop(interconnect.events.send(EventMessage::RemoveGlobalEvents));
             },
             CoreMessage::Mute(m) => {
                 drop(interconnect.mixer.send(MixerMessage::SetMute(m)));
             },
             CoreMessage::Reconnect => {
+                #[cfg(feature = "lcr-controlled-fault")]
+                {
+                    lcr_reconnect_phase_seq = lcr_reconnect_phase_seq.wrapping_add(1);
+
+                    eprintln!(
+                        "LCR_G3_RECONNECT_PHASE seq={} phase=ARM_ENTER connection_present={}",
+                        lcr_reconnect_phase_seq,
+                        connection.is_some()
+                    );
+                }
+
                 if let Some(mut conn) = connection.take() {
                     // try once: if interconnect, try again.
                     // if still issue, full connect.
                     let info = conn.info.clone();
 
+                    #[cfg(feature = "lcr-controlled-fault")]
+                    eprintln!(
+                        "LCR_G3_RECONNECT_PHASE seq={} phase=FIRST_RECONNECT_BEGIN",
+                        lcr_reconnect_phase_seq
+                    );
+
                     let full_connect = match conn.reconnect(&config).await {
                         Ok(()) => {
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=FIRST_RECONNECT_OK",
+                                lcr_reconnect_phase_seq
+                            );
+
                             connection = Some(conn);
                             false
                         },
                         Err(ConnectionError::InterconnectFailure(_)) => {
-                            interconnect.restart_volatile_internals();
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=FIRST_RECONNECT_INTERCONNECT_FAILURE",
+                                lcr_reconnect_phase_seq
+                            );
+
+                            interconnect.restart_volatile_internals(&persistent_core_events);
+
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=EVENT_PROCESSOR_RESTART",
+                                lcr_reconnect_phase_seq
+                            );
+
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=SECOND_RECONNECT_BEGIN",
+                                lcr_reconnect_phase_seq
+                            );
 
                             match conn.reconnect(&config).await {
                                 Ok(()) => {
+                                    #[cfg(feature = "lcr-controlled-fault")]
+                                    eprintln!(
+                                        "LCR_G3_RECONNECT_PHASE seq={} phase=SECOND_RECONNECT_OK",
+                                        lcr_reconnect_phase_seq
+                                    );
+
                                     connection = Some(conn);
                                     false
                                 },
-                                _ => true,
+                                _ => {
+                                    #[cfg(feature = "lcr-controlled-fault")]
+                                    eprintln!(
+                                        "LCR_G3_RECONNECT_PHASE seq={} phase=SECOND_RECONNECT_ERR",
+                                        lcr_reconnect_phase_seq
+                                    );
+
+                                    true
+                                },
                             }
                         },
-                        _ => true,
+                        _ => {
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=FIRST_RECONNECT_ERR",
+                                lcr_reconnect_phase_seq
+                            );
+
+                            true
+                        },
                     };
 
                     if full_connect {
+                        #[cfg(feature = "lcr-controlled-fault")]
+                        eprintln!(
+                            "LCR_G3_RECONNECT_PHASE seq={} phase=FULL_RECONNECT_BEGIN",
+                            lcr_reconnect_phase_seq
+                        );
+
                         connection = ConnectionRetryData::reconnect(info, &mut attempt_idx)
                             .attempt(&mut retrying, &interconnect, &config)
                             .await;
+
+                        #[cfg(feature = "lcr-controlled-fault")]
+                        {
+                            let phase = if connection.is_some() {
+                                "FULL_RECONNECT_CONNECTED"
+                            } else if retrying.is_some() {
+                                "FULL_RECONNECT_RETRY_SCHEDULED"
+                            } else {
+                                "FULL_RECONNECT_TERMINAL"
+                            };
+
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase={}",
+                                lcr_reconnect_phase_seq,
+                                phase
+                            );
+                        }
                     } else if let Some(ref connection) = &connection {
-                        drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                            CoreContext::DriverReconnect(InternalConnect {
-                                info: connection.info.clone(),
-                                ssrc: connection.ssrc,
-                            }),
-                        )));
+                        let event_send =
+                            interconnect
+                                .events
+                                .send(EventMessage::FireCoreEvent(
+                                    CoreContext::DriverReconnect(InternalConnect {
+                                        info: connection.info.clone(),
+                                        ssrc: connection.ssrc,
+                                    }),
+                                ));
+
+                        #[cfg(feature = "lcr-controlled-fault")]
+                        eprintln!(
+                            "LCR_G3_RECONNECT_PHASE seq={} phase=DRIVER_RECONNECT_EVENT_SEND status={}",
+                            lcr_reconnect_phase_seq,
+                            if event_send.is_ok() { "OK" } else { "ERR" }
+                        );
+
+                        drop(event_send);
                     }
+                } else {
+                    #[cfg(feature = "lcr-controlled-fault")]
+                    eprintln!(
+                        "LCR_G3_RECONNECT_PHASE seq={} phase=ARM_NO_CONNECTION",
+                        lcr_reconnect_phase_seq
+                    );
+                }
+            },
+            #[cfg(feature = "lcr-controlled-fault")]
+            CoreMessage::LcrControlledReconnect(probe) => {
+                let connection_present = connection.is_some();
+
+                let _ = probe.send(connection_present);
+
+                if connection_present {
+                    let _ = interconnect.core.send(CoreMessage::Reconnect);
                 }
             },
             CoreMessage::FullReconnect =>
@@ -213,7 +341,15 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                         .await;
                 },
             CoreMessage::RebuildInterconnect => {
-                interconnect.restart_volatile_internals();
+                interconnect.restart_volatile_internals(&persistent_core_events);
+            },
+            #[cfg(test)]
+            CoreMessage::TestFireCoreEvent(context) => {
+                drop(
+                    interconnect
+                        .events
+                        .send(EventMessage::FireCoreEvent(context)),
+                );
             },
             CoreMessage::Poison => break,
         }
@@ -348,4 +484,201 @@ impl ConnectionRetryData {
 enum ConnectionFlavour {
     Connect(Sender<Result<(), ConnectionError>>),
     Reconnect,
+}
+
+#[cfg(test)]
+mod persistent_core_event_tests {
+    use super::*;
+    use crate::{
+        events::{Event, EventContext, EventData, EventHandler},
+        id::{ChannelId, GuildId, UserId},
+        CoreEvent,
+    };
+    use std::{
+        num::NonZeroU64,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
+
+    #[derive(Clone)]
+    struct CountHandler {
+        hits: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl EventHandler for CountHandler {
+        async fn act(&self, _context: &EventContext<'_>) -> Option<Event> {
+            self.hits.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+    }
+
+    struct BarrierHandler {
+        sender: Sender<()>,
+    }
+
+    #[async_trait::async_trait]
+    impl EventHandler for BarrierHandler {
+        async fn act(&self, _context: &EventContext<'_>) -> Option<Event> {
+            let _ = self.sender.send(());
+            None
+        }
+    }
+
+    fn test_connection_info() -> ConnectionInfo {
+        ConnectionInfo {
+            channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+            endpoint: "voice.example.invalid".to_owned(),
+            guild_id: GuildId(NonZeroU64::new(2).unwrap()),
+            session_id: "session".to_owned(),
+            token: "token".to_owned(),
+            user_id: UserId(NonZeroU64::new(3).unwrap()),
+        }
+    }
+
+    fn driver_reconnect_context() -> CoreContext {
+        CoreContext::DriverReconnect(InternalConnect {
+            info: test_connection_info(),
+            ssrc: 7,
+        })
+    }
+
+    fn driver_connect_context() -> CoreContext {
+        CoreContext::DriverConnect(InternalConnect {
+            info: test_connection_info(),
+            ssrc: 7,
+        })
+    }
+
+    fn isolated_test_config() -> Config {
+        Config::default().scheduler(crate::driver::Scheduler::new(
+            crate::driver::SchedulerConfig::default(),
+        ))
+    }
+    async fn fire_reconnect_then_barrier(tx: &Sender<CoreMessage>) {
+        let (barrier_tx, barrier_rx) = flume::bounded(1);
+
+        tx.send(CoreMessage::AddEvent(EventData::new(
+            Event::Core(CoreEvent::DriverConnect),
+            BarrierHandler { sender: barrier_tx },
+        )))
+        .unwrap();
+
+        tx.send(CoreMessage::TestFireCoreEvent(
+            driver_reconnect_context(),
+        ))
+        .unwrap();
+
+        tx.send(CoreMessage::TestFireCoreEvent(
+            driver_connect_context(),
+        ))
+        .unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            barrier_rx.recv_async(),
+        )
+        .await
+        .expect("event-processor barrier timed out")
+        .expect("event-processor barrier channel closed");
+    }
+
+    async fn stop_runner(tx: &Sender<CoreMessage>, task: tokio::task::JoinHandle<()>) {
+        tx.send(CoreMessage::Poison).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("core runner shutdown timed out")
+            .expect("core runner task failed");
+    }
+
+    #[tokio::test]
+    async fn persistent_core_event_survives_rebuild_without_duplication() {
+        let (tx, rx) = flume::unbounded();
+        let task = tokio::spawn(runner(
+            isolated_test_config(),
+            rx,
+            tx.clone(),
+        ));
+
+        let hits = Arc::new(AtomicUsize::new(0));
+
+        tx.send(CoreMessage::AddPersistentCoreEvent(
+            PersistentCoreEvent::new(
+                CoreEvent::DriverReconnect,
+                CountHandler {
+                    hits: Arc::clone(&hits),
+                },
+            ),
+        ))
+        .unwrap();
+
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        tx.send(CoreMessage::RebuildInterconnect).unwrap();
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            2,
+            "first rebuild must replay exactly one persistent handler",
+        );
+
+        tx.send(CoreMessage::RebuildInterconnect).unwrap();
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            3,
+            "second rebuild must not duplicate persistent handlers",
+        );
+
+        tx.send(CoreMessage::RemoveGlobalEvents).unwrap();
+        tx.send(CoreMessage::RebuildInterconnect).unwrap();
+
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            3,
+            "RemoveGlobalEvents must prevent persistent resurrection",
+        );
+
+        stop_runner(&tx, task).await;
+    }
+
+    #[tokio::test]
+    async fn ordinary_global_event_remains_volatile_across_rebuild() {
+        let (tx, rx) = flume::unbounded();
+        let task = tokio::spawn(runner(
+            isolated_test_config(),
+            rx,
+            tx.clone(),
+        ));
+
+        let hits = Arc::new(AtomicUsize::new(0));
+
+        tx.send(CoreMessage::AddEvent(EventData::new(
+            Event::Core(CoreEvent::DriverReconnect),
+            CountHandler {
+                hits: Arc::clone(&hits),
+            },
+        )))
+        .unwrap();
+
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        tx.send(CoreMessage::RebuildInterconnect).unwrap();
+
+        fire_reconnect_then_barrier(&tx).await;
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "ordinary add_global_event must remain volatile",
+        );
+
+        stop_runner(&tx, task).await;
+    }
 }

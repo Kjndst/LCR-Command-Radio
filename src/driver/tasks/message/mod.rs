@@ -33,12 +33,22 @@ impl Interconnect {
         self.poison();
     }
 
-    pub fn restart_volatile_internals(&mut self) {
+    pub fn restart_volatile_internals(
+        &mut self,
+        persistent_core_events: &[PersistentCoreEvent],
+    ) {
         self.poison();
 
         let (evt_tx, evt_rx) = flume::unbounded();
 
         self.events = evt_tx;
+
+        for event in persistent_core_events {
+            drop(
+                self.events
+                    .send(EventMessage::AddGlobalEvent(event.event_data())),
+            );
+        }
 
         spawn(async move {
             trace!("Event processor restarted.");

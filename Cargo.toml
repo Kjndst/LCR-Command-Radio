@@ -162,6 +162,7 @@ receive = ["dep:bytes", "discortp?/demux", "discortp?/rtcp"]
 # Used for docgen/testing/benchmarking.
 full-doc = ["default", "tungstenite", "twilight", "builtin-queue", "receive"]
 internals = ["dep:byteorder"]
+lcr-controlled-fault = []
 
 [lib]
 bench = false
