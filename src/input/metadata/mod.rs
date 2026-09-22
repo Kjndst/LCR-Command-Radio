@@ -1,11 +1,15 @@
 //! Metadata formats specific to [`crate::input::Compose`] types.
 
+#[cfg(feature = "input-extras")]
 use crate::error::JsonError;
 use std::time::Duration;
 use symphonia_core::{meta::Metadata as ContainerMetadata, probe::ProbedMetadata};
 
+#[cfg(feature = "input-extras")]
 pub(crate) mod ffprobe;
+#[cfg(feature = "input-extras")]
 mod ytdl;
+#[cfg(feature = "input-extras")]
 pub use ytdl::Output as YoutubeDlOutput;
 
 use super::Parsed;
@@ -51,6 +55,7 @@ pub struct AuxMetadata {
 
 impl AuxMetadata {
     /// Extract metadata and details from the output of `ffprobe -of json`.
+    #[cfg(feature = "input-extras")]
     pub fn from_ffprobe_json(value: &mut [u8]) -> Result<Self, JsonError> {
         let output: ffprobe::Output = serde_json::from_slice(value)?;
 

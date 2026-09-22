@@ -51,6 +51,7 @@
 //! [format]: codecs::get_probe
 //! [codec registries]: codecs::get_codec_registry
 
+#[cfg(feature = "input-extras")]
 mod adapters;
 mod audiostream;
 pub mod codecs;
@@ -61,19 +62,21 @@ pub mod input_tests;
 mod live_input;
 pub mod metadata;
 mod parsed;
+#[cfg(feature = "input-extras")]
 mod sources;
 pub mod utils;
 
 pub use self::{
-    adapters::*,
     audiostream::*,
     compose::*,
     error::*,
     live_input::*,
     metadata::{AuxMetadata, Metadata},
     parsed::*,
-    sources::*,
 };
+
+#[cfg(feature = "input-extras")]
+pub use self::{adapters::*, sources::*};
 
 pub use symphonia_core as core;
 

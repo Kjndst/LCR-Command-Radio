@@ -84,7 +84,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "test-util"] }
 
 [features]
 # Core features
-default = ["driver", "gateway", "rustls", "serenity", "tungstenite"]
+default = ["driver", "gateway", "rustls", "serenity", "tungstenite", "input-extras"]
 gateway = [
     "dep:async-trait",
     "dep:dashmap",
@@ -109,30 +109,33 @@ driver = [
     "dep:nohash-hasher",
     "dep:parking_lot",
     "dep:rand",
-    "dep:reqwest",
-    "dep:ringbuf",
     "dep:rubato",
     "dep:rusty_pool",
-    "dep:serde-aux",
     "dep:serenity-voice-model",
     "dep:socket2",
-    "dep:stream_lib",
-    "dep:streamcatcher",
     "dep:symphonia",
     "dep:symphonia-core",
     "dep:tokio",
-    "dep:tokio-util",
     "dep:typenum",
     "dep:url",
     "dep:uuid",
-    "tokio?/fs",
     "tokio?/io-util",
     "tokio?/macros",
     "tokio?/net",
-    "tokio?/process",
     "tokio?/rt",
     "tokio?/sync",
     "tokio?/time",
+]
+input-extras = [
+    "driver",
+    "dep:reqwest",
+    "dep:ringbuf",
+    "dep:serde-aux",
+    "dep:stream_lib",
+    "dep:streamcatcher",
+    "dep:tokio-util",
+    "tokio?/fs",
+    "tokio?/process",
 ]
 rustls = [
     "reqwest?/rustls-tls",
