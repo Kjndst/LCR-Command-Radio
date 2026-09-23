@@ -15,6 +15,8 @@ pub(crate) mod connection;
 mod crypto;
 #[cfg(feature = "receive")]
 mod decode_mode;
+#[cfg(feature = "lcr-raw-opus-source")]
+mod raw_opus;
 mod mix_mode;
 pub mod retry;
 mod scheduler;
@@ -29,6 +31,8 @@ pub use crypto::CryptoMode;
 pub(crate) use crypto::CryptoState;
 #[cfg(feature = "receive")]
 pub use decode_mode::*;
+#[cfg(feature = "lcr-raw-opus-source")]
+pub use raw_opus::{RawOpusHandle, RawOpusRead, RawOpusSource};
 pub use mix_mode::MixMode;
 pub use scheduler::{
     get_default_scheduler,
@@ -251,6 +255,22 @@ impl Driver {
     #[instrument(skip(self, input))]
     pub fn play_only_input(&mut self, input: Input) -> TrackHandle {
         self.play_only(input.into())
+    }
+
+    /// Exclusively installs a synchronous encoded-Opus source.
+    ///
+    /// Songbird's existing mixer remains the sole pacing, RTP, DAVE, encryption,
+    /// UDP, reconnect, and speaking-lifecycle owner. Installing this source
+    /// removes any generic tracks already attached to the mixer.
+    #[cfg(feature = "lcr-raw-opus-source")]
+    #[instrument(skip(self, source))]
+    pub fn play_only_raw_opus<S>(&mut self, source: S) -> RawOpusHandle
+    where
+        S: RawOpusSource,
+    {
+        let (handle, context) = raw_opus::RawOpusContext::new(source);
+        self.send(CoreMessage::SetRawOpusSource(Some(Box::new(context))));
+        handle
     }
 
     /// Plays audio from a [`Track`] object.

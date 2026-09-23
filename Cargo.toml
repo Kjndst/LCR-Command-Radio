@@ -166,6 +166,7 @@ receive = ["dep:bytes", "discortp?/demux", "discortp?/rtcp"]
 full-doc = ["default", "tungstenite", "twilight", "builtin-queue", "receive"]
 internals = ["dep:byteorder"]
 lcr-controlled-fault = []
+lcr-raw-opus-source = ["driver"]
 
 [lib]
 bench = false

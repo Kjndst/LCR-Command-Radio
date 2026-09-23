@@ -89,13 +89,13 @@ impl Idle {
                     if let Some(task) = self.tasks.get_mut(&id) {
                         match task.handle_message(mix_msg) {
                             Ok(false) if maybe_live => {
-                                if task.mixer.tracks.is_empty() {
-                                    // No tracks, likely due to SetConn.
-                                    // Recreate message forwarding task.
-                                    task.spawn_forwarder(self.tx.clone(), id);
-                                } else {
+                                if task.mixer.has_live_media_source() {
                                     let task = self.tasks.remove(&id).unwrap();
                                     self.schedule_mixer(task, id, None);
+                                } else {
+                                    // No live media source, likely due to SetConn.
+                                    // Recreate message forwarding task.
+                                    task.spawn_forwarder(self.tx.clone(), id);
                                 }
                             },
                             Ok(false) => {},
@@ -331,5 +331,229 @@ mod test {
         }
 
         assert_eq!(core.stats.worker_threads(), 0);
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+mod lcr_raw_opus_scheduler_tests {
+    use super::*;
+    use crate::driver::{
+        raw_opus::RawOpusContext,
+        tasks::{
+            message::{MixerMessage, WsMessage},
+            mixer::Mixer,
+        },
+        test_config::{OutputMessage, OutputMode, TickMessage, TickStyle},
+        RawOpusRead,
+        RawOpusSource,
+    };
+    use std::{
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Instant,
+    };
+    use tokio::runtime::Handle;
+
+    const REAL_FRAME: &[u8] = &[0x11, 0x22, 0x33, 0x44, 0x55];
+
+    struct SpeakingAwareRawSource {
+        ws_rx: flume::Receiver<WsMessage>,
+        pulls: Arc<AtomicUsize>,
+        speaking_true_seen_before_first_pull: Arc<AtomicBool>,
+    }
+
+    impl RawOpusSource for SpeakingAwareRawSource {
+        fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+            let pull_index = self.pulls.fetch_add(1, Ordering::SeqCst);
+
+            if pull_index == 0 {
+                let speaking_true_seen =
+                    matches!(self.ws_rx.try_recv(), Ok(WsMessage::Speaking(true)));
+
+                self.speaking_true_seen_before_first_pull
+                    .store(speaking_true_seen, Ordering::SeqCst);
+
+                assert!(
+                    speaking_true_seen,
+                    "scheduler must enqueue Speaking(true) before the first raw source pull"
+                );
+
+                dst[..REAL_FRAME.len()].copy_from_slice(REAL_FRAME);
+                RawOpusRead::Frame(REAL_FRAME.len())
+            } else {
+                RawOpusRead::End
+            }
+        }
+    }
+
+    fn expect_passthrough(
+        rx: &flume::Receiver<TickMessage<OutputMessage>>,
+    ) {
+        let output = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("timed out waiting for raw passthrough output");
+
+        match output {
+            TickMessage::El(OutputMessage::Passthrough(frame)) => {
+                assert_eq!(frame.as_slice(), REAL_FRAME);
+            },
+            _ => panic!("expected one raw passthrough frame"),
+        }
+    }
+
+    fn expect_silence(
+        rx: &flume::Receiver<TickMessage<OutputMessage>>,
+    ) {
+        let output = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("timed out waiting for existing Songbird silence tail");
+
+        assert!(
+            matches!(output, TickMessage::El(OutputMessage::Silent)),
+            "expected existing Songbird explicit silence frame"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_opus_scheduler_speaking_wraps_existing_five_frame_tail() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+
+        let (tick_tx, tick_rx) = flume::unbounded();
+        let (output_tx, output_rx) = flume::unbounded();
+        let (ws_tx, ws_rx) = flume::unbounded();
+
+        mixer.config = Arc::new(
+            (*mixer.config)
+                .clone()
+                .tick_style(TickStyle::UntimedWithExecLimit(tick_rx))
+                .override_connection(Some(OutputMode::Raw(output_tx))),
+        );
+
+        mixer.ws = Some(ws_tx);
+
+        let pulls = Arc::new(AtomicUsize::new(0));
+        let speaking_true_seen_before_first_pull = Arc::new(AtomicBool::new(false));
+
+        let source = SpeakingAwareRawSource {
+            ws_rx: ws_rx.clone(),
+            pulls: Arc::clone(&pulls),
+            speaking_true_seen_before_first_pull: Arc::clone(
+                &speaking_true_seen_before_first_pull,
+            ),
+        };
+
+        let (raw_handle, raw_context) = RawOpusContext::new(source);
+
+        let mut setup_packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(
+            mixer.handle_message(
+                MixerMessage::SetRawOpusSource(Some(Box::new(raw_context))),
+                &mut setup_packet,
+            ),
+            (false, false, false)
+        );
+
+        assert!(mixer.has_live_media_source());
+
+        let parked = ParkedMixer {
+            mixer: Box::new(mixer),
+            ssrc: 42,
+            rtp_sequence: 7,
+            rtp_timestamp: 11,
+            park_time: Instant::now(),
+            last_cost: None,
+            cull_handle: None,
+        };
+
+        let scheduler_config = Config {
+            strategy: Mode::MaxPerThread(1.try_into().unwrap()),
+            move_expensive_tasks: false,
+        };
+
+        let (mut idle, _scheduler_tx) = Idle::new(scheduler_config);
+        let id = TaskId::new();
+
+        //
+        // schedule_mixer() synchronously enqueues Speaking(true) before handing
+        // the ParkedMixer to the live worker. The source itself verifies this
+        // on its first pull, avoiding a test-side scheduling race.
+        //
+        idle.schedule_mixer(parked, id, None);
+
+        tick_tx
+            .send(1)
+            .expect("live worker tick channel must remain open");
+
+        expect_passthrough(&output_rx);
+
+        assert!(
+            speaking_true_seen_before_first_pull.load(Ordering::SeqCst),
+            "Speaking(true) must precede first media pull"
+        );
+        assert_eq!(pulls.load(Ordering::SeqCst), 1);
+        assert!(!raw_handle.is_ended());
+
+        //
+        // Second pull returns End. Existing Songbird lifecycle must emit
+        // exactly five silence frames before scheduler demotion.
+        //
+        for tail_index in 0..5 {
+            tick_tx
+                .send(1)
+                .expect("live worker tick channel must remain open");
+
+            expect_silence(&output_rx);
+
+            if tail_index == 0 {
+                assert!(raw_handle.is_ended());
+                assert_eq!(pulls.load(Ordering::SeqCst), 2);
+            }
+
+            assert!(
+                matches!(
+                    ws_rx.try_recv(),
+                    Err(flume::TryRecvError::Empty)
+                ),
+                "Speaking(false) must not be emitted before scheduler demotion"
+            );
+        }
+
+        assert_eq!(pulls.load(Ordering::SeqCst), 2);
+
+        //
+        // After the fifth silence frame, the live worker's next loop sees:
+        // no raw source + silence_frames == 0, then sends Demote to Idle.
+        // Consume Idle's immediate timer tick first so the bounded wait below
+        // waits specifically for a scheduler message rather than a clock guess.
+        //
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.tick().await;
+
+        let run_result = tokio::time::timeout(
+            Duration::from_secs(2),
+            idle.run_once(&mut interval),
+        )
+        .await
+        .expect("timed out waiting for live mixer demotion");
+
+        assert!(run_result);
+
+        let speaking_false = ws_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("timed out waiting for Speaking(false) after demotion");
+
+        assert!(
+            matches!(speaking_false, WsMessage::Speaking(false)),
+            "scheduler demotion must emit Speaking(false)"
+        );
+
+        assert_eq!(idle.stats.live_mixers(), 0);
+        assert!(
+            output_rx.try_recv().is_err(),
+            "no media packet may follow the completed five-frame tail"
+        );
     }
 }

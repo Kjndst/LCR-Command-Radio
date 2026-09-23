@@ -1,5 +1,8 @@
 #![allow(missing_docs)]
 
+#[cfg(feature = "lcr-raw-opus-source")]
+use crate::driver::raw_opus::RawOpusContext;
+
 #[cfg(feature = "receive")]
 use super::UdpRxMessage;
 use super::{Interconnect, TrackContext, WsMessage};
@@ -28,6 +31,8 @@ pub struct MixerConnection {
 pub enum MixerMessage {
     AddTrack(Box<TrackContext>),
     SetTrack(Option<Box<TrackContext>>),
+    #[cfg(feature = "lcr-raw-opus-source")]
+    SetRawOpusSource(Option<Box<RawOpusContext>>),
 
     SetBitrate(Bitrate),
     SetConfig(Config),
@@ -46,10 +51,12 @@ pub enum MixerMessage {
 impl MixerMessage {
     #[must_use]
     pub fn is_mixer_maybe_live(&self) -> bool {
-        matches!(
-            self,
-            Self::AddTrack(_) | Self::SetTrack(Some(_)) | Self::SetConn(..)
-        )
+        match self {
+            Self::AddTrack(_) | Self::SetTrack(Some(_)) | Self::SetConn(..) => true,
+            #[cfg(feature = "lcr-raw-opus-source")]
+            Self::SetRawOpusSource(Some(_)) => true,
+            _ => false,
+        }
     }
 }
 

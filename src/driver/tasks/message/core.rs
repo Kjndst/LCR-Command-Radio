@@ -1,5 +1,8 @@
 #![allow(missing_docs)]
 
+#[cfg(feature = "lcr-raw-opus-source")]
+use crate::driver::raw_opus::RawOpusContext;
+
 use crate::{
     driver::{connection::error::Error, Bitrate, Config},
     events::{
@@ -57,6 +60,8 @@ pub enum CoreMessage {
     Disconnect,
     SetTrack(Option<Box<TrackContext>>),
     AddTrack(Box<TrackContext>),
+    #[cfg(feature = "lcr-raw-opus-source")]
+    SetRawOpusSource(Option<Box<RawOpusContext>>),
     SetBitrate(Bitrate),
     AddEvent(EventData),
     AddPersistentCoreEvent(PersistentCoreEvent),

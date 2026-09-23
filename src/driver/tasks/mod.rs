@@ -175,6 +175,10 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             CoreMessage::AddTrack(s) => {
                 drop(interconnect.mixer.send(MixerMessage::AddTrack(s)));
             },
+            #[cfg(feature = "lcr-raw-opus-source")]
+            CoreMessage::SetRawOpusSource(s) => {
+                drop(interconnect.mixer.send(MixerMessage::SetRawOpusSource(s)));
+            },
             CoreMessage::SetBitrate(b) => {
                 drop(interconnect.mixer.send(MixerMessage::SetBitrate(b)));
             },

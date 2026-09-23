@@ -15,6 +15,8 @@ use super::{
     error::{Error, Result},
     message::*,
 };
+#[cfg(feature = "lcr-raw-opus-source")]
+use crate::driver::raw_opus::{RawOpusContext, RawOpusRead};
 use crate::{
     constants::*,
     driver::{CryptoMode, MixMode},
@@ -76,6 +78,8 @@ pub struct Mixer {
 
     pub tracks: Vec<InternalTrack>,
     track_handles: Vec<TrackHandle>,
+    #[cfg(feature = "lcr-raw-opus-source")]
+    raw_opus_source: Option<Box<RawOpusContext>>,
 
     sample_buffer: SampleBuffer<f32>,
     symph_mix: AudioBuffer<f32>,
@@ -162,6 +166,8 @@ impl Mixer {
 
             tracks,
             track_handles,
+            #[cfg(feature = "lcr-raw-opus-source")]
+            raw_opus_source: None,
 
             sample_buffer,
             symph_mix,
@@ -223,8 +229,14 @@ impl Mixer {
         let mut should_exit = false;
 
         let error = match msg {
-            MixerMessage::AddTrack(t) => self.add_track(*t),
+            MixerMessage::AddTrack(t) => {
+                #[cfg(feature = "lcr-raw-opus-source")]
+                self.clear_raw_opus_source();
+                self.add_track(*t)
+            },
             MixerMessage::SetTrack(t) => {
+                #[cfg(feature = "lcr-raw-opus-source")]
+                self.clear_raw_opus_source();
                 self.tracks.clear();
                 self.track_handles.clear();
 
@@ -238,6 +250,15 @@ impl Mixer {
                     }
                 }
 
+                out
+            },
+            #[cfg(feature = "lcr-raw-opus-source")]
+            MixerMessage::SetRawOpusSource(source) => {
+                self.tracks.clear();
+                self.track_handles.clear();
+                let out = self.fire_event(EventMessage::RemoveAllTracks);
+                self.clear_raw_opus_source();
+                self.raw_opus_source = source;
                 out
             },
             MixerMessage::SetBitrate(b) => {
@@ -397,6 +418,24 @@ impl Mixer {
         Ok(())
     }
 
+    #[cfg(feature = "lcr-raw-opus-source")]
+    #[inline]
+    fn clear_raw_opus_source(&mut self) {
+        if let Some(source) = self.raw_opus_source.take() {
+            source.mark_ended();
+        }
+    }
+
+    #[inline]
+    pub(crate) fn has_live_media_source(&self) -> bool {
+        #[cfg(feature = "lcr-raw-opus-source")]
+        if self.raw_opus_source.is_some() {
+            return true;
+        }
+
+        !self.tracks.is_empty()
+    }
+
     // rebuilds the event thread's view of each track, in event of a full rebuild.
     #[inline]
     fn rebuild_tracks(&mut self) -> Result<()> {
@@ -516,6 +555,41 @@ impl Mixer {
         }
     }
 
+    #[cfg(feature = "lcr-raw-opus-source")]
+    #[inline]
+    fn mix_raw_opus(&mut self, packet: &mut [u8]) -> MixType {
+        let crypto_mode = self.crypto_mode();
+        let mut rtp = MutableRtpPacket::new(packet).expect(
+            "FATAL: Too few bytes in self.packet for RTP header.\
+                (Blame: VOICE_PACKET_MAX?)",
+        );
+        let payload = rtp.payload_mut();
+        let first_payload_byte = crypto_mode.payload_prefix_len();
+        let total_payload_space = payload.len().saturating_sub(crypto_mode.payload_suffix_len());
+
+        let Some(mut source) = self.raw_opus_source.take() else {
+            return MixType::MixedPcm(0);
+        };
+
+        if source.stop_requested() || first_payload_byte >= total_payload_space {
+            source.mark_ended();
+            return MixType::MixedPcm(0);
+        }
+
+        let slot = &mut payload[first_payload_byte..total_payload_space];
+
+        match source.source.pull_opus(slot) {
+            RawOpusRead::Frame(len) if len > 0 && len <= slot.len() => {
+                self.raw_opus_source = Some(source);
+                MixType::Passthrough(len)
+            },
+            RawOpusRead::Frame(_) | RawOpusRead::End | RawOpusRead::Error => {
+                source.mark_ended();
+                MixType::MixedPcm(0)
+            },
+        }
+    }
+
     #[inline]
     pub fn mix_and_build_packet(&mut self, packet: &mut [u8]) -> Result<usize> {
         // symph_mix is an `AudioBuffer` (planar format), we need to convert this
@@ -524,13 +598,19 @@ impl Mixer {
         self.symph_mix.render_reserved(Some(MONO_FRAME_SIZE));
         self.resample_scratch.clear();
 
-        // Walk over all the audio files, combining into one audio frame according
-        // to volume, play state, etc.
+        #[cfg(feature = "lcr-raw-opus-source")]
+        let mut mix_len = if self.raw_opus_source.is_some() {
+            self.mix_raw_opus(packet)
+        } else {
+            let out = self.mix_tracks(packet);
+            self.sample_buffer.copy_interleaved_typed(&self.symph_mix);
+            out
+        };
+
+        #[cfg(not(feature = "lcr-raw-opus-source"))]
         let mut mix_len = {
             let out = self.mix_tracks(packet);
-
             self.sample_buffer.copy_interleaved_typed(&self.symph_mix);
-
             out
         };
 
@@ -880,5 +960,370 @@ impl Mixer {
         }
 
         MixType::MixedPcm(len)
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+mod lcr_raw_opus_source_tests {
+    use super::*;
+    use crate::{
+        driver::{
+            raw_opus::RawOpusContext,
+            RawOpusHandle,
+            RawOpusRead,
+            RawOpusSource,
+        },
+        tracks::Track,
+    };
+    use std::{
+        collections::VecDeque,
+        sync::{
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+            Arc,
+        },
+    };
+    use tokio::runtime::Handle;
+
+    const FRAME_A: &[u8] = &[0x11, 0x22, 0x33, 0x44];
+    const FRAME_B: &[u8] = &[0xaa, 0xbb, 0xcc, 0xdd, 0xee];
+
+    enum ScriptedRead {
+        Frame(&'static [u8]),
+        End,
+        Error,
+    }
+
+    struct ScriptedRawSource {
+        reads: VecDeque<ScriptedRead>,
+        pulls: Arc<AtomicUsize>,
+    }
+
+    impl RawOpusSource for ScriptedRawSource {
+        fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+            self.pulls.fetch_add(1, AtomicOrdering::SeqCst);
+
+            match self.reads.pop_front().unwrap_or(ScriptedRead::End) {
+                ScriptedRead::Frame(frame) => {
+                    dst[..frame.len()].copy_from_slice(frame);
+                    RawOpusRead::Frame(frame.len())
+                },
+                ScriptedRead::End => RawOpusRead::End,
+                ScriptedRead::Error => RawOpusRead::Error,
+            }
+        }
+    }
+
+    fn scripted_source(
+        reads: Vec<ScriptedRead>,
+    ) -> (ScriptedRawSource, Arc<AtomicUsize>) {
+        let pulls = Arc::new(AtomicUsize::new(0));
+
+        (
+            ScriptedRawSource {
+                reads: VecDeque::from(reads),
+                pulls: Arc::clone(&pulls),
+            },
+            pulls,
+        )
+    }
+
+    fn configure_raw_test_output(mixer: &mut Mixer) {
+        let (tx, _rx) = flume::unbounded();
+
+        mixer.config = Arc::new(
+            (*mixer.config)
+                .clone()
+                .override_connection(Some(OutputMode::Raw(tx))),
+        );
+    }
+
+    fn install_raw(
+        mixer: &mut Mixer,
+        source: ScriptedRawSource,
+    ) -> RawOpusHandle {
+        let (handle, context) = RawOpusContext::new(source);
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        let result = mixer.handle_message(
+            MixerMessage::SetRawOpusSource(Some(Box::new(context))),
+            &mut packet,
+        );
+
+        assert_eq!(result, (false, false, false));
+
+        handle
+    }
+
+    fn mix_tick(
+        mixer: &mut Mixer,
+        packet: &mut [u8; VOICE_PACKET_MAX],
+    ) -> usize {
+        mixer.mix_and_build_packet(packet).unwrap()
+    }
+
+    fn assert_passthrough(mixer: &Mixer, expected: &[u8]) {
+        match mixer.raw_msg.as_ref() {
+            Some(OutputMessage::Passthrough(frame)) => {
+                assert_eq!(frame.as_slice(), expected);
+            },
+            other => panic!("expected passthrough frame, got {other:?}"),
+        }
+    }
+
+    fn assert_silent(mixer: &Mixer) {
+        assert_eq!(mixer.raw_msg.as_ref(), Some(&OutputMessage::Silent));
+    }
+
+    fn dummy_track_context() -> Box<TrackContext> {
+        let input: Input = Vec::<u8>::new().into();
+        let (_, context) = Track::from(input).into_context();
+
+        Box::new(context)
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_passthrough_bytes_and_one_pull_per_tick() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (source, pulls) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+            ScriptedRead::Frame(FRAME_B),
+        ]);
+
+        let _handle = install_raw(&mut mixer, source);
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_A);
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(mixer.silence_frames, 5);
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_B);
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(mixer.silence_frames, 5);
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_end_and_error_emit_exact_existing_five_frame_tail() {
+        for terminal in [ScriptedRead::End, ScriptedRead::Error] {
+            let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+            configure_raw_test_output(&mut mixer);
+
+            let (source, pulls) = scripted_source(vec![
+                ScriptedRead::Frame(FRAME_A),
+                terminal,
+            ]);
+
+            let handle = install_raw(&mut mixer, source);
+            let mut packet = [0u8; VOICE_PACKET_MAX];
+
+            assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+            assert_passthrough(&mixer, FRAME_A);
+            assert_eq!(mixer.silence_frames, 5);
+
+            for expected_remaining in [4u8, 3, 2, 1, 0] {
+                assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+                assert_silent(&mixer);
+                assert_eq!(mixer.silence_frames, expected_remaining);
+            }
+
+            assert!(handle.is_ended());
+            assert_eq!(pulls.load(AtomicOrdering::SeqCst), 2);
+
+            assert_eq!(mix_tick(&mut mixer, &mut packet), 0);
+            assert_eq!(mixer.silence_frames, 0);
+            assert_eq!(pulls.load(AtomicOrdering::SeqCst), 2);
+            assert!(!mixer.has_live_media_source());
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_stop_enters_tail_without_extra_source_pull() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (source, pulls) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+            ScriptedRead::Frame(FRAME_B),
+        ]);
+
+        let handle = install_raw(&mut mixer, source);
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_A);
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 1);
+
+        handle.stop();
+
+        for expected_remaining in [4u8, 3, 2, 1, 0] {
+            assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+            assert_silent(&mixer);
+            assert_eq!(mixer.silence_frames, expected_remaining);
+        }
+
+        assert!(handle.is_ended());
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 1);
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 0);
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_stale_handle_cannot_stop_replacement() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (source_a, pulls_a) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+        ]);
+        let old_handle = install_raw(&mut mixer, source_a);
+
+        let (source_b, pulls_b) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_B),
+        ]);
+        let new_handle = install_raw(&mut mixer, source_b);
+
+        assert!(old_handle.is_ended());
+        assert!(!new_handle.is_ended());
+
+        old_handle.stop();
+
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_B);
+
+        assert_eq!(pulls_a.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(pulls_b.load(AtomicOrdering::SeqCst), 1);
+        assert!(!new_handle.is_ended());
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_track_and_raw_sources_are_mutually_exclusive() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (source_a, _pulls_a) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+        ]);
+        let raw_handle_a = install_raw(&mut mixer, source_a);
+
+        assert!(mixer.has_live_media_source());
+        assert!(mixer.tracks.is_empty());
+
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(
+            mixer.handle_message(
+                MixerMessage::AddTrack(dummy_track_context()),
+                &mut packet,
+            ),
+            (false, false, false)
+        );
+
+        assert!(raw_handle_a.is_ended());
+        assert_eq!(mixer.tracks.len(), 1);
+
+        let (source_b, _pulls_b) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_B),
+        ]);
+        let raw_handle_b = install_raw(&mut mixer, source_b);
+
+        assert!(!raw_handle_b.is_ended());
+        assert!(mixer.tracks.is_empty());
+        assert!(mixer.track_handles.is_empty());
+        assert!(mixer.has_live_media_source());
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_dropconn_setconn_preserves_source_instance() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (mut donor, _donor_listeners) = Mixer::mock(Handle::current(), false);
+        let replacement_connection = donor
+            .conn_active
+            .take()
+            .expect("mock mixer must contain a connection");
+
+        let (source, pulls) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+        ]);
+        let handle = install_raw(&mut mixer, source);
+
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(
+            mixer.handle_message(MixerMessage::DropConn, &mut packet),
+            (false, false, false)
+        );
+        assert!(mixer.conn_active.is_none());
+        assert!(mixer.has_live_media_source());
+        assert!(!handle.is_ended());
+
+        assert_eq!(
+            mixer.handle_message(
+                MixerMessage::SetConn(replacement_connection, 42),
+                &mut packet,
+            ),
+            (false, false, false)
+        );
+
+        assert!(mixer.conn_active.is_some());
+        assert!(mixer.has_live_media_source());
+        assert!(!handle.is_ended());
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_A);
+        assert_eq!(pulls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn raw_opus_mixer_real_frame_during_tail_resets_full_tail() {
+        let (mut mixer, _listeners) = Mixer::mock(Handle::current(), false);
+        configure_raw_test_output(&mut mixer);
+
+        let (source_a, _pulls_a) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_A),
+            ScriptedRead::End,
+        ]);
+        let old_handle = install_raw(&mut mixer, source_a);
+
+        let mut packet = [0u8; VOICE_PACKET_MAX];
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_A);
+        assert_eq!(mixer.silence_frames, 5);
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_silent(&mixer);
+        assert_eq!(mixer.silence_frames, 4);
+        assert!(old_handle.is_ended());
+
+        let (source_b, pulls_b) = scripted_source(vec![
+            ScriptedRead::Frame(FRAME_B),
+            ScriptedRead::End,
+        ]);
+        let new_handle = install_raw(&mut mixer, source_b);
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+        assert_passthrough(&mixer, FRAME_B);
+        assert_eq!(pulls_b.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(mixer.silence_frames, 5);
+
+        for expected_remaining in [4u8, 3, 2, 1, 0] {
+            assert_eq!(mix_tick(&mut mixer, &mut packet), 1);
+            assert_silent(&mixer);
+            assert_eq!(mixer.silence_frames, expected_remaining);
+        }
+
+        assert!(new_handle.is_ended());
+        assert_eq!(pulls_b.load(AtomicOrdering::SeqCst), 2);
+
+        assert_eq!(mix_tick(&mut mixer, &mut packet), 0);
+        assert_eq!(mixer.silence_frames, 0);
     }
 }
