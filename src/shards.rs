@@ -16,6 +16,8 @@ use serenity::gateway::ShardRunnerMessage;
 #[cfg(feature = "serenity")]
 use std::result::Result as StdResult;
 use std::sync::Arc;
+#[cfg(feature = "twilight")]
+use std::sync::RwLock;
 #[cfg(feature = "serenity")]
 use tracing::{debug, error};
 #[cfg(feature = "twilight")]
@@ -29,7 +31,7 @@ use twilight_model::gateway::payload::outgoing::update_voice_state::UpdateVoiceS
 #[cfg(feature = "twilight")]
 #[derive(Debug)]
 pub struct TwilightMap {
-    map: std::collections::HashMap<u32, MessageSender>,
+    map: RwLock<std::collections::HashMap<u32, MessageSender>>,
 }
 
 #[cfg(feature = "twilight")]
@@ -39,19 +41,79 @@ impl TwilightMap {
     /// For correctness all shards should be in the map.
     #[must_use]
     pub fn new(map: std::collections::HashMap<u32, MessageSender>) -> Self {
-        TwilightMap { map }
+        TwilightMap {
+            map: RwLock::new(map),
+        }
     }
 
-    /// Get the message sender for `shard_id`.
+    /// Get a clone of the message sender for `shard_id`.
     #[must_use]
-    pub fn get(&self, shard_id: u32) -> Option<&MessageSender> {
-        self.map.get(&shard_id)
+    pub fn get(&self, shard_id: u32) -> Option<MessageSender> {
+        let map = match self.map.read() {
+            Ok(map) => map,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        map.get(&shard_id).cloned()
+    }
+
+    /// Replace the message sender for an existing `shard_id`.
+    ///
+    /// Returns `false` when the shard slot does not already exist.
+    pub fn replace_sender(&self, shard_id: u32, sender: MessageSender) -> bool {
+        let mut map = match self.map.write() {
+            Ok(map) => map,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(current) = map.get_mut(&shard_id) else {
+            return false;
+        };
+
+        *current = sender;
+        true
     }
 
     /// Get the total number of shards in the map.
     #[must_use]
     pub fn shard_count(&self) -> u64 {
-        self.map.len() as u64
+        let map = match self.map.read() {
+            Ok(map) => map,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        map.len() as u64
+    }
+}
+
+#[cfg(all(test, feature = "twilight"))]
+mod twilight_map_tests {
+    use super::TwilightMap;
+    use std::collections::HashMap;
+    use twilight_gateway::{Config, Intents, Shard, ShardId};
+
+    #[tokio::test]
+    async fn twilight_map_replace_sender_updates_existing_slot() {
+        let old_shard = Shard::with_config(
+            ShardId::ONE,
+            Config::new("old-token".to_owned(), Intents::GUILDS),
+        );
+        let new_shard = Shard::with_config(
+            ShardId::ONE,
+            Config::new("new-token".to_owned(), Intents::GUILDS),
+        );
+        let shard_id = old_shard.id().number();
+        let map = TwilightMap::new(HashMap::from([(shard_id, old_shard.sender())]));
+
+        assert_eq!(map.shard_count(), 1);
+        assert!(!map.get(shard_id).expect("old sender exists").is_closed());
+        assert!(map.replace_sender(shard_id, new_shard.sender()));
+        assert!(!map.replace_sender(shard_id + 1, new_shard.sender()));
+
+        drop(old_shard);
+        assert!(!map.get(shard_id).expect("new sender exists").is_closed());
+
+        drop(new_shard);
+        assert!(map.get(shard_id).expect("replacement sender remains").is_closed());
     }
 }
 
