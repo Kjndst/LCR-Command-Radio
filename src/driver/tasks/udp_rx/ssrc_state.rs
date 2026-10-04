@@ -103,6 +103,7 @@ impl SsrcState {
                 packet,
                 payload_offset,
                 payload_end_pad,
+                dave_authenticated_user_id: None,
             };
 
             out.packet = Some(rtp_data);

@@ -159,6 +159,7 @@ impl UdpRx {
         // to rebuild their context etc. (hence, the `let _ =` statements.), as it will
         // try to make contact every 20ms.
         let crypto_mode = self.crypto_mode;
+        let mut dave_authenticated_user_id = None;
 
         match demux::demux_mut(packet.as_mut()) {
             DemuxedMut::Rtp(mut rtp) => {
@@ -226,6 +227,7 @@ impl UdpRx {
 
                         match result {
                             Ok(decrypted_body) => {
+                                dave_authenticated_user_id = Some(*user_id);
                                 packet_data = Some((
                                     rtp_body_start,
                                     rtp_body_tail + (body.len() - decrypted_body.len()),
@@ -280,6 +282,7 @@ impl UdpRx {
                         packet,
                         payload_offset: rtp_body_start,
                         payload_end_pad: rtp_body_tail,
+                        dave_authenticated_user_id,
                     }),
                 )));
             },

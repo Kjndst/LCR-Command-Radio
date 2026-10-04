@@ -1,3 +1,5 @@
+use crate::model::id::UserId;
+
 use discortp::rtp::RtpPacket;
 
 use super::*;
@@ -17,6 +19,12 @@ pub struct RtpData {
     pub payload_offset: usize,
     /// Number of bytes at the end of the packet to discard.
     pub payload_end_pad: usize,
+    /// Discord user identity cryptographically bound to this packet by successful DAVE decryption.
+    ///
+    /// This is `Some` only for immediate RTP events whose encrypted DAVE audio frame was
+    /// successfully decrypted for that user. It is `None` for non-DAVE/passthrough packets and
+    /// for RTP data replayed through `VoiceTick`, which does not preserve this arrival metadata.
+    pub dave_authenticated_user_id: Option<UserId>,
 }
 
 impl RtpData {

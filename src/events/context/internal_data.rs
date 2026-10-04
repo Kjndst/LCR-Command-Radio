@@ -41,6 +41,7 @@ impl<'a> From<&'a InternalDisconnect> for DisconnectData<'a> {
 #[cfg(feature = "receive")]
 mod receive {
     use super::*;
+    use crate::model::id::UserId;
     use bytes::Bytes;
 
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,6 +49,7 @@ mod receive {
         pub packet: Bytes,
         pub payload_offset: usize,
         pub payload_end_pad: usize,
+        pub dave_authenticated_user_id: Option<UserId>,
     }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +65,7 @@ mod receive {
                 packet: val.packet.clone(),
                 payload_offset: val.payload_offset,
                 payload_end_pad: val.payload_end_pad,
+                dave_authenticated_user_id: val.dave_authenticated_user_id,
             }
         }
     }
@@ -80,3 +83,28 @@ mod receive {
 
 #[cfg(feature = "receive")]
 pub use receive::*;
+
+#[cfg(all(test, feature = "receive"))]
+mod tests {
+    use super::*;
+    use crate::model::id::UserId;
+    use bytes::Bytes;
+
+    #[test]
+    fn rtp_context_preserves_dave_authenticated_user_id() {
+        let user_id = UserId(42);
+
+        for expected in [None, Some(user_id)] {
+            let internal = InternalRtpPacket {
+                packet: Bytes::new(),
+                payload_offset: 0,
+                payload_end_pad: 0,
+                dave_authenticated_user_id: expected,
+            };
+
+            let public = RtpData::from(&internal);
+
+            assert_eq!(public.dave_authenticated_user_id, expected);
+        }
+    }
+}
