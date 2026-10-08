@@ -72,7 +72,7 @@ impl WsStream {
     }
 
     pub(crate) async fn recv_event_no_timeout(&mut self) -> Result<Option<Event>> {
-        convert_ws_message(self.0.try_next().await?)
+        convert_ws_stream_message(self.0.try_next().await?)
     }
 
     pub(crate) async fn send_json(&mut self, value: &Event) -> Result<()> {
@@ -86,6 +86,13 @@ impl WsStream {
         let res = res.map(Message::binary);
 
         Ok(res.map_err(Error::from).map(|m| self.0.send(m))?.await?)
+    }
+}
+
+fn convert_ws_stream_message(message: Option<Message>) -> Result<Option<Event>> {
+    match message {
+        Some(message) => convert_ws_message(Some(message)),
+        None => Err(Error::WsClosed(None)),
     }
 }
 
@@ -192,4 +199,16 @@ pub(crate) fn convert_ws_message(message: Option<Message>) -> Result<Option<Even
         // ping/pong; will also be internally handled by tokio-websockets.
         _ => return Ok(None),
     };
+}
+#[cfg(test)]
+mod tests {
+    use super::{convert_ws_stream_message, Error};
+
+    #[test]
+    fn exhausted_stream_is_typed_closed() {
+        assert!(matches!(
+            convert_ws_stream_message(None),
+            Err(Error::WsClosed(None))
+        ));
+    }
 }
