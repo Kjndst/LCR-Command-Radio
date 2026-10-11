@@ -34,10 +34,14 @@ use std::{
     },
     time::Duration,
 };
+#[cfg(all(feature = "lcr-controlled-fault", feature = "tws"))]
+use std::io::ErrorKind;
 use tokio::{
     select,
     time::{sleep_until, Instant},
 };
+#[cfg(all(feature = "lcr-controlled-fault", feature = "tws"))]
+use tokio_websockets::Error as TwsError;
 #[cfg(feature = "tungstenite")]
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tracing::{debug, info, instrument, trace, warn};
@@ -127,6 +131,14 @@ impl AuxNetwork {
                     ws_error = match self.send_heartbeat().await {
                         Err(e) => {
                             should_reconnect = ws_error_is_not_final(&e);
+                            #[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+                            lcr_log_voice_ws_cause(
+                                &self.info,
+                                self.attempt_idx,
+                                "heartbeat_send",
+                                &e,
+                                should_reconnect,
+                            );
                             ws_reason = Some((&e).into());
                             true
                         },
@@ -165,6 +177,14 @@ impl AuxNetwork {
                                 ws_error |= match ssu_status {
                                     Err(e) => {
                                         should_reconnect = ws_error_is_not_final(&e);
+                                        #[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+                                        lcr_log_voice_ws_cause(
+                                            &self.info,
+                                            self.attempt_idx,
+                                            "speaking_send",
+                                            &e,
+                                            should_reconnect,
+                                        );
                                         ws_reason = Some((&e).into());
                                         true
                                     },
@@ -176,6 +196,14 @@ impl AuxNetwork {
                             ws_error |= match self.process_ws(interconnect, msg).await {
                                 Err(e) => {
                                     should_reconnect = ws_error_is_not_final(&e);
+                                    #[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+                                    lcr_log_voice_ws_cause(
+                                        &self.info,
+                                        self.attempt_idx,
+                                        "deliver_process",
+                                        &e,
+                                        should_reconnect,
+                                    );
                                     ws_reason = Some((&e).into());
                                     true
                                 }
@@ -191,6 +219,14 @@ impl AuxNetwork {
                     ws_error = match ws_msg {
                         Err(e) => {
                             should_reconnect = ws_error_is_not_final(&e);
+                            #[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+                            lcr_log_voice_ws_cause(
+                                &self.info,
+                                self.attempt_idx,
+                                "receive",
+                                &e,
+                                should_reconnect,
+                            );
                             ws_reason = Some((&e).into());
                             true
                         },
@@ -198,6 +234,14 @@ impl AuxNetwork {
                             match self.process_ws(interconnect, msg).await {
                                 Err(e) => {
                                     should_reconnect = ws_error_is_not_final(&e);
+                                    #[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+                                    lcr_log_voice_ws_cause(
+                                        &self.info,
+                                        self.attempt_idx,
+                                        "receive_process",
+                                        &e,
+                                        should_reconnect,
+                                    );
                                     ws_reason = Some((&e).into());
                                     true
                                 },
@@ -527,6 +571,75 @@ pub(crate) async fn runner(mut interconnect: Interconnect, mut aux: AuxNetwork) 
     trace!("WS thread finished.");
 }
 
+#[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+fn lcr_log_voice_ws_cause(
+    info: &ConnectionInfo,
+    attempt_idx: usize,
+    origin: &'static str,
+    err: &WsError,
+    should_reconnect: bool,
+) {
+    let (class, detail, close_code) = lcr_voice_ws_cause_fields(err);
+
+    if let Some(close_code) = close_code {
+        eprintln!(
+            "LCR_VOICE_WS_CAUSE attempt_idx={} user_id={:?} origin={} class={} detail={} close_code={} resume={}",
+            attempt_idx,
+            info.user_id,
+            origin,
+            class,
+            detail,
+            close_code,
+            should_reconnect
+        );
+    } else {
+        eprintln!(
+            "LCR_VOICE_WS_CAUSE attempt_idx={} user_id={:?} origin={} class={} detail={} close_code=none resume={}",
+            attempt_idx,
+            info.user_id,
+            origin,
+            class,
+            detail,
+            should_reconnect
+        );
+    }
+}
+
+#[cfg(all(feature = "lcr-controlled-fault", any(feature = "tws", feature = "tungstenite")))]
+fn lcr_voice_ws_cause_fields(
+    err: &WsError,
+) -> (&'static str, &'static str, Option<u16>) {
+    match err {
+        #[cfg(feature = "tws")]
+        WsError::WsClosed(Some(code)) => ("close", "close_code", Some((*code).into())),
+        #[cfg(feature = "tungstenite")]
+        WsError::WsClosed(Some(_)) => ("close", "close_frame", None),
+        WsError::WsClosed(None) => ("closed_without_frame", "none", None),
+        #[cfg(feature = "tws")]
+        WsError::Ws(TwsError::Io(error)) => {
+            ("io", lcr_io_error_kind(error.kind()), None)
+        },
+        WsError::Ws(_) => ("ws", "other", None),
+        WsError::Json(_) => ("decode", "json", None),
+        WsError::UnexpectedBinaryMessage(_) => ("protocol", "unexpected_binary", None),
+        WsError::Binary(_) => ("encode", "binary", None),
+    }
+}
+
+#[cfg(all(feature = "lcr-controlled-fault", feature = "tws"))]
+fn lcr_io_error_kind(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::ConnectionReset => "connection_reset",
+        ErrorKind::ConnectionAborted => "connection_aborted",
+        ErrorKind::BrokenPipe => "broken_pipe",
+        ErrorKind::NotConnected => "not_connected",
+        ErrorKind::TimedOut => "timed_out",
+        ErrorKind::UnexpectedEof => "unexpected_eof",
+        ErrorKind::WouldBlock => "would_block",
+        ErrorKind::Interrupted => "interrupted",
+        _ => "other",
+    }
+}
 fn ws_error_is_not_final(err: &WsError) -> bool {
     match err {
         #[cfg(feature = "tungstenite")]
@@ -553,5 +666,34 @@ fn ws_error_is_not_final(err: &WsError) -> bool {
             debug!("Error sending/receiving ws {:?}.", e);
             true
         },
+    }
+}
+
+
+#[cfg(all(test, feature = "lcr-controlled-fault", feature = "tws"))]
+mod lcr_voice_ws_cause_tests {
+    use super::lcr_voice_ws_cause_fields;
+    use crate::ws::Error as WsError;
+    use std::io::{Error as IoError, ErrorKind};
+    use tokio_websockets::Error as TwsError;
+
+    #[test]
+    fn lcr_voice_ws_cause_classifies_stream_eof() {
+        assert_eq!(
+            lcr_voice_ws_cause_fields(&WsError::WsClosed(None)),
+            ("closed_without_frame", "none", None)
+        );
+    }
+
+    #[test]
+    fn lcr_voice_ws_cause_classifies_connection_reset() {
+        let error = WsError::Ws(TwsError::Io(IoError::from(
+            ErrorKind::ConnectionReset,
+        )));
+
+        assert_eq!(
+            lcr_voice_ws_cause_fields(&error),
+            ("io", "connection_reset", None)
+        );
     }
 }
