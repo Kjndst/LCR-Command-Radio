@@ -22,15 +22,19 @@ use crate::{
 };
 use flume::{Receiver, Sender};
 use message::*;
-use tokio::{spawn, time::sleep as tsleep};
+use tokio::{spawn, task::JoinHandle, time::sleep as tsleep};
 use tracing::{debug, instrument, trace};
 
-pub(crate) fn start(config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMessage>) {
+pub(crate) fn start(
+    config: Config,
+    rx: Receiver<CoreMessage>,
+    tx: Sender<CoreMessage>,
+) -> JoinHandle<()> {
     spawn(async move {
         trace!("Driver started.");
         runner(config, rx, tx).await;
         trace!("Driver finished.");
-    });
+    })
 }
 
 fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {

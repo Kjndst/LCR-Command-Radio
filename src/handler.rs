@@ -35,7 +35,7 @@ enum Return {
 /// [`Driver`] via `Deref(Mut)`.
 ///
 /// [`Driver`]: struct@Driver
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Call {
     #[cfg(not(feature = "driver"))]
     config: Config,

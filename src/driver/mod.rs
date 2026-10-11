@@ -80,18 +80,51 @@ use std::time::Duration;
 #[allow(unused_imports)]
 pub use tasks::disposal::DisposalThread;
 use tasks::message::{CoreMessage, PersistentCoreEvent};
+use tokio::task::JoinHandle;
 use tracing::instrument;
+
+/// Opaque observation token for one Driver core task lifetime.
+///
+/// This token deliberately exposes completion waiting only. It does
+/// not expose Tokio task abortion or core reconstruction authority.
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct LcrCoreTaskCompletion {
+    task: JoinHandle<()>,
+}
+
+impl LcrCoreTaskCompletion {
+    /// Waits for the owned Driver core task to finish.
+    ///
+    /// Dropping this token only detaches completion observation; it
+    /// does not abort the Driver core task.
+    #[doc(hidden)]
+    pub async fn wait(
+        self,
+    ) -> std::result::Result<(), tokio::task::JoinError> {
+        self.task.await
+    }
+}
+
+/// The Driver core task can no longer accept commands.
+///
+/// This is a factual transport state only. It does not imply retry,
+/// reconstruction, or any product recovery policy.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LcrCoreUnavailable;
 
 /// The control object for a Discord voice connection, handling connection,
 /// mixing, encoding, en/decryption, and event generation.
 ///
 /// When compiled with the `"builtin-queue"` feature, each driver includes a track queue
 /// as a convenience to prevent the additional overhead of per-guild state management.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Driver {
     config: Config,
     self_mute: bool,
     sender: Sender<CoreMessage>,
+    core_task: Option<LcrCoreTaskCompletion>,
     // Making this an Option is an abhorrent hack to coerce the borrow checker
     // into letting us have an &TrackQueue at the same time as an &mut Driver.
     // This is probably preferable to cloning the driver: Arc<...> should be nonzero
@@ -108,29 +141,38 @@ impl Driver {
     #[inline]
     #[must_use]
     pub fn new(config: Config) -> Self {
-        let sender = Self::start_inner(config.clone());
+        let (sender, core_task) = Self::start_inner(config.clone());
 
         Driver {
             config,
             self_mute: false,
             sender,
+            core_task: Some(core_task),
             #[cfg(feature = "builtin-queue")]
             queue: Some(TrackQueue::default()),
         }
     }
 
-    fn start_inner(config: Config) -> Sender<CoreMessage> {
+    fn start_inner(config: Config) -> (Sender<CoreMessage>, LcrCoreTaskCompletion) {
         let (tx, rx) = flume::unbounded();
 
-        tasks::start(config, rx, tx.clone());
+        let core_task = LcrCoreTaskCompletion {
+            task: tasks::start(config, rx, tx.clone()),
+        };
 
-        tx
+        (tx, core_task)
     }
 
-    fn restart_inner(&mut self) {
-        self.sender = Self::start_inner(self.config.clone());
-
-        self.mute(self.self_mute);
+    /// Takes ownership of this Driver core task completion handle.
+    ///
+    /// This is a fork-specific lifecycle seam for LCR. The completion
+    /// token is take-once: subsequent calls return `None`. The token
+    /// grants observation only and cannot abort or rebuild the core.
+    #[doc(hidden)]
+    pub fn lcr_take_core_task_completion(
+        &mut self,
+    ) -> Option<LcrCoreTaskCompletion> {
+        self.core_task.take()
     }
 
     /// Connects to a voice channel using the specified server.
@@ -151,7 +193,11 @@ impl Driver {
     /// Connects to a voice channel using the specified server.
     #[instrument(skip(self))]
     pub(crate) fn raw_connect(&mut self, info: ConnectionInfo, tx: Sender<Result<()>>) {
-        self.send(CoreMessage::ConnectWithResult(info, tx));
+        if let Err(SendError(CoreMessage::ConnectWithResult(_, tx))) =
+            self.sender.send(CoreMessage::ConnectWithResult(info, tx))
+        {
+            drop(tx.send(Err(Error::AttemptDiscarded)));
+        }
     }
 
     /// Leaves the current voice channel, disconnecting from it.
@@ -196,15 +242,7 @@ impl Driver {
                 force_first_interconnect_failure,
             )) {
                 Ok(()) => true,
-                Err(SendError(CoreMessage::LcrControlledReconnect(probe_tx, force))) => {
-                    self.restart_inner();
-
-                    self.sender
-                        .send(CoreMessage::LcrControlledReconnect(probe_tx, force))
-                        .expect("fresh controlled-fault core accepts diagnostic request");
-
-                    false
-                }
+                Err(SendError(CoreMessage::LcrControlledReconnect(_, _))) => false,
                 Err(_) => {
                     unreachable!("controlled reconnect send returns its original message")
                 }
@@ -271,6 +309,27 @@ impl Driver {
         let (handle, context) = raw_opus::RawOpusContext::new(source);
         self.send(CoreMessage::SetRawOpusSource(Some(Box::new(context))));
         handle
+    }
+
+    /// Fallible LCR seam for installing one synchronous encoded-Opus source.
+    ///
+    /// Returns [`LcrCoreUnavailable`] if this exact Driver core can no longer
+    /// accept commands. No replacement core is created.
+    #[cfg(feature = "lcr-raw-opus-source")]
+    #[doc(hidden)]
+    #[instrument(skip(self, source))]
+    pub fn lcr_try_play_only_raw_opus<S>(
+        &mut self,
+        source: S,
+    ) -> std::result::Result<RawOpusHandle, LcrCoreUnavailable>
+    where
+        S: RawOpusSource,
+    {
+        let (handle, context) = raw_opus::RawOpusContext::new(source);
+
+        self.try_send(CoreMessage::SetRawOpusSource(Some(Box::new(context))))?;
+
+        Ok(handle)
     }
 
     /// Plays audio from a [`Track`] object.
@@ -366,20 +425,53 @@ impl Driver {
         ));
     }
 
+    /// Fallible LCR seam for installing a persistent core-event handler.
+    ///
+    /// Success means the command was accepted by this exact Driver core.
+    /// It does not add retry or reconstruction authority.
+    #[doc(hidden)]
+    #[instrument(skip(self, action))]
+    pub fn lcr_try_add_persistent_core_event<F: EventHandler + 'static>(
+        &mut self,
+        event: CoreEvent,
+        action: F,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::AddPersistentCoreEvent(
+            PersistentCoreEvent::new(event, action),
+        ))
+    }
+
     /// Removes all global event handlers from an audio context.
     #[instrument(skip(self))]
     pub fn remove_all_global_events(&mut self) {
         self.send(CoreMessage::RemoveGlobalEvents);
     }
 
-    /// Sends a message to the inner tasks, restarting it if necessary.
-    fn send(&mut self, status: CoreMessage) {
-        // Restart thread if it errored.
-        if let Err(SendError(status)) = self.sender.send(status) {
-            self.restart_inner();
+    /// Fallible LCR seam for clearing global and persistent core events.
+    ///
+    /// Success means the reset command was accepted by this exact Driver core.
+    #[doc(hidden)]
+    #[instrument(skip(self))]
+    pub fn lcr_try_remove_all_global_events(
+        &mut self,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::RemoveGlobalEvents)
+    }
 
-            self.sender.send(status).unwrap();
-        }
+    /// Sends a command only if this exact Driver core is still accepting work.
+    fn try_send(
+        &self,
+        status: CoreMessage,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.sender.send(status).map_err(|_| LcrCoreUnavailable)
+    }
+
+    /// Sends a best-effort message to the inner tasks.
+    ///
+    /// A dead Driver core is terminal for this Driver lifetime. Generic
+    /// void-style APIs fail closed and never reconstruct a replacement core.
+    fn send(&mut self, status: CoreMessage) {
+        let _ = self.try_send(status);
     }
 }
 
@@ -441,6 +533,7 @@ async fn lcr_controlled_reconnect_sends_native_reconnect_message() {
         config: Config::default(),
         self_mute: false,
         sender,
+        core_task: None,
         #[cfg(feature = "builtin-queue")]
         queue: Some(TrackQueue::default()),
     };
@@ -475,6 +568,7 @@ async fn lcr_controlled_reconnect_can_force_first_interconnect_failure() {
         config: Config::default(),
         self_mute: false,
         sender,
+        core_task: None,
         #[cfg(feature = "builtin-queue")]
         queue: Some(TrackQueue::default()),
     };
@@ -511,6 +605,7 @@ async fn lcr_controlled_reconnect_force_is_request_local() {
         config: Config::default(),
         self_mute: false,
         sender,
+        core_task: None,
         #[cfg(feature = "builtin-queue")]
         queue: Some(TrackQueue::default()),
     };
@@ -575,7 +670,7 @@ async fn lcr_controlled_reconnect_reports_empty_live_core() {
 
 #[cfg(all(test, feature = "lcr-controlled-fault"))]
 #[tokio::test]
-async fn lcr_controlled_reconnect_reports_dead_sender_restart() {
+async fn lcr_controlled_reconnect_reports_dead_sender_without_restart() {
     let (sender, receiver) = flume::unbounded();
 
     drop(receiver);
@@ -584,6 +679,7 @@ async fn lcr_controlled_reconnect_reports_dead_sender_restart() {
         config: Config::default(),
         self_mute: false,
         sender,
+        core_task: None,
         #[cfg(feature = "builtin-queue")]
         queue: Some(TrackQueue::default()),
     };
@@ -591,8 +687,235 @@ async fn lcr_controlled_reconnect_reports_dead_sender_restart() {
     let diagnostic = driver.lcr_controlled_reconnect().await;
 
     assert!(!diagnostic.sender_alive_before_send);
-    assert_eq!(diagnostic.core_connection_present, Some(false));
+    assert_eq!(diagnostic.core_connection_present, None);
 }
+#[cfg(test)]
+#[tokio::test]
+async fn lcr_core_task_completion_is_take_once_and_observes_return() {
+    let mut driver = Driver::new(Config::default());
+
+    let completion = driver
+        .lcr_take_core_task_completion()
+        .expect("Driver owns one core completion token");
+
+    assert!(driver.lcr_take_core_task_completion().is_none());
+
+    drop(driver);
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        completion.wait(),
+    )
+    .await
+    .expect("Driver core terminates after Driver drop")
+    .expect("Driver core returns without panic");
+}
+
+#[cfg(test)]
+struct LcrCriticalNoopEventHandler;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl EventHandler for LcrCriticalNoopEventHandler {
+    async fn act(
+        &self,
+        _ctx: &crate::events::EventContext<'_>,
+    ) -> Option<Event> {
+        None
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+struct LcrCriticalEmptyRawSource;
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+impl RawOpusSource for LcrCriticalEmptyRawSource {
+    fn pull_opus(&mut self, _dst: &mut [u8]) -> RawOpusRead {
+        RawOpusRead::End
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+struct LcrCriticalDropObservedRawSource {
+    dropped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+impl RawOpusSource for LcrCriticalDropObservedRawSource {
+    fn pull_opus(&mut self, _dst: &mut [u8]) -> RawOpusRead {
+        RawOpusRead::End
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+impl Drop for LcrCriticalDropObservedRawSource {
+    fn drop(&mut self) {
+        self.dropped
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+fn lcr_critical_dead_core_driver() -> Driver {
+    let (sender, receiver) = flume::unbounded();
+    drop(receiver);
+
+    Driver {
+        config: Config::default(),
+        self_mute: false,
+        sender,
+        core_task: None,
+        #[cfg(feature = "builtin-queue")]
+        queue: Some(TrackQueue::default()),
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[test]
+fn lcr_critical_raw_install_rejects_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+    let dropped = std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(false),
+    );
+
+    let result = driver.lcr_try_play_only_raw_opus(
+        LcrCriticalDropObservedRawSource {
+            dropped: std::sync::Arc::clone(&dropped),
+        },
+    );
+
+    assert!(matches!(result, Err(LcrCoreUnavailable)));
+    assert!(
+        dropped.load(std::sync::atomic::Ordering::Acquire),
+        "failed raw install must deterministically drop its source context"
+    );
+    assert!(driver.core_task.is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn lcr_critical_persistent_event_rejects_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+
+    let result = driver.lcr_try_add_persistent_core_event(
+        CoreEvent::DriverDisconnect,
+        LcrCriticalNoopEventHandler,
+    );
+
+    assert_eq!(result, Err(LcrCoreUnavailable));
+    assert!(driver.core_task.is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn lcr_critical_event_reset_rejects_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+
+    let result = driver.lcr_try_remove_all_global_events();
+
+    assert_eq!(result, Err(LcrCoreUnavailable));
+    assert!(driver.core_task.is_none());
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[tokio::test]
+async fn lcr_critical_raw_install_accepts_live_core() {
+    let mut driver = Driver::new(Config::default());
+
+    let result = driver.lcr_try_play_only_raw_opus(
+        LcrCriticalEmptyRawSource,
+    );
+
+    assert!(result.is_ok());
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn lcr_critical_event_seams_accept_live_core() {
+    let mut driver = Driver::new(Config::default());
+
+    assert_eq!(
+        driver.lcr_try_add_persistent_core_event(
+            CoreEvent::DriverDisconnect,
+            LcrCriticalNoopEventHandler,
+        ),
+        Ok(())
+    );
+
+    assert_eq!(
+        driver.lcr_try_remove_all_global_events(),
+        Ok(())
+    );
+}
+
+#[cfg(test)]
+fn lcr_test_connection_info() -> ConnectionInfo {
+    let one = std::num::NonZeroU64::new(1)
+        .expect("test Discord ID is non-zero");
+
+    ConnectionInfo {
+        channel_id: crate::id::ChannelId(one),
+        endpoint: "127.0.0.1".to_owned(),
+        guild_id: crate::id::GuildId(one),
+        session_id: "lcr-r0b-test-session".to_owned(),
+        token: "lcr-r0b-test-token".to_owned(),
+        user_id: crate::id::UserId(one),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn lcr_generic_command_does_not_resurrect_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+
+    driver.leave();
+
+    assert!(driver.core_task.is_none());
+    assert!(
+        driver.sender.send(CoreMessage::Mute(false)).is_err(),
+        "generic command must not replace the dead core sender"
+    );
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn lcr_connect_resolves_attempt_discarded_on_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        driver.connect(lcr_test_connection_info()),
+    )
+    .await
+    .expect("dead-core connect must resolve without hanging");
+
+    assert!(
+        matches!(result, Err(Error::AttemptDiscarded)),
+        "dead-core connect must surface AttemptDiscarded"
+    );
+    assert!(driver.core_task.is_none());
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn lcr_core_task_completion_observes_test_panic() {
+    let completion = LcrCoreTaskCompletion {
+        task: tokio::spawn(async {
+            panic!("deterministic LCR core-completion panic proof");
+        }),
+    };
+
+    let error = completion
+        .wait()
+        .await
+        .expect_err("test task must complete by panic");
+
+    assert!(
+        error.is_panic(),
+        "completion observer must surface panic rather than detach silently"
+    );
+}
+
 impl Default for Driver {
     fn default() -> Self {
         Self::new(Config::default())
