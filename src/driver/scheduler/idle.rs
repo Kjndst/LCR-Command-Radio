@@ -250,10 +250,10 @@ mod test {
         };
 
         let sched = Scheduler::new(config);
-        let (pkt_tx, _pkt_rx) = flume::unbounded();
+        let (output_tx, _output_rx) = flume::unbounded();
         let cfg = DriverConfig::default()
             .scheduler(sched.clone())
-            .override_connection(Some(OutputMode::Rtp(pkt_tx)));
+            .override_connection(Some(OutputMode::Raw(output_tx)));
 
         let n_tasks = 1024;
 

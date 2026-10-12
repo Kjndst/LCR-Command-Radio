@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    panic::{catch_unwind, AssertUnwindSafe},
+    time::{Duration, Instant},
+};
 
 use discortp::rtp::{MutableRtpPacket, RtpPacket};
 use flume::{SendError, TryRecvError};
@@ -114,6 +117,7 @@ impl Worker {
 
 const PACKETS_PER_BLOCK: usize = 16;
 const MEMORY_CULL_TIMER: Duration = Duration::from_secs(10);
+const PANICKED_MIXER_PACKET_LEN: usize = usize::MAX;
 
 /// A synchronous thread responsible for mixing, encoding, encrypting, and
 /// sending the audio output of many `Mixer`s.
@@ -206,21 +210,30 @@ impl Live {
         let mut pre_pkt_time = Instant::now();
         let mut worst_task = (0, Duration::default());
 
-        for (i, (packet_len, mixer)) in self
+        for (i, ((packet_len, mixer), cull_marker)) in self
             .packet_lens
             .iter_mut()
             .zip(self.tasks.iter_mut())
+            .zip(self.to_cull.iter_mut())
             .enumerate()
         {
             let (block, inner) = get_memory_indices(i);
-            match mixer.mix_and_build_packet(&mut self.packets[block][inner..][..VOICE_PACKET_MAX])
-            {
-                Ok(written_sz) => *packet_len = written_sz,
-                e => {
-                    *packet_len = 0;
-                    rebuild_if_err(mixer, e, &mut self.to_cull, i);
-                },
+            let packet = &mut self.packets[block][inner..][..VOICE_PACKET_MAX];
+            let phase = catch_unwind(AssertUnwindSafe(|| {
+                match mixer.mix_and_build_packet(packet) {
+                    Ok(written_sz) => *packet_len = written_sz,
+                    e => {
+                        *packet_len = 0;
+                        rebuild_if_err(mixer, e, cull_marker);
+                    },
+                }
+            }));
+
+            if phase.is_err() {
+                *packet_len = PANICKED_MIXER_PACKET_LEN;
+                contain_panicked_mixer(mixer, cull_marker);
             }
+
             let post_pkt_time = Instant::now();
             let cost = post_pkt_time.duration_since(pre_pkt_time);
             if cost > worst_task.1 {
@@ -250,30 +263,60 @@ impl Live {
 
         // Send all.
         self.start_of_work = Some(Instant::now());
-        for (i, (packet_len, mixer)) in self
+        for (i, ((packet_len, mixer), cull_marker)) in self
             .packet_lens
             .iter_mut()
             .zip(self.tasks.iter_mut())
+            .zip(self.to_cull.iter_mut())
             .enumerate()
         {
+            if *packet_len == PANICKED_MIXER_PACKET_LEN {
+                continue;
+            }
+
             let (block, inner) = get_memory_indices(i);
             let packet = &mut self.packets[block][inner..];
-            if *packet_len > 0 {
-                let res = mixer.send_packet(&packet[..*packet_len]);
-                rebuild_if_err(mixer, res, &mut self.to_cull, i);
+            let phase = catch_unwind(AssertUnwindSafe(|| {
+                if *packet_len > 0 {
+                    let res = mixer.send_packet(&packet[..*packet_len]);
+                    rebuild_if_err(mixer, res, cull_marker);
+                }
+                #[cfg(test)]
+                if *packet_len == 0 {
+                    mixer.test_signal_empty_tick();
+                }
+            }));
+
+            if phase.is_err() {
+                *packet_len = PANICKED_MIXER_PACKET_LEN;
+                contain_panicked_mixer(mixer, cull_marker);
+                continue;
             }
-            #[cfg(test)]
-            if *packet_len == 0 {
-                mixer.test_signal_empty_tick();
-            }
+
             advance_rtp_counters(packet);
         }
 
-        for (i, mixer) in self.tasks.iter_mut().enumerate() {
-            let res = mixer
-                .audio_commands_events()
-                .and_then(|()| mixer.check_and_send_keepalive(self.start_of_work));
-            rebuild_if_err(mixer, res, &mut self.to_cull, i);
+        for ((packet_len, mixer), cull_marker) in self
+            .packet_lens
+            .iter_mut()
+            .zip(self.tasks.iter_mut())
+            .zip(self.to_cull.iter_mut())
+        {
+            if *packet_len == PANICKED_MIXER_PACKET_LEN {
+                continue;
+            }
+
+            let phase = catch_unwind(AssertUnwindSafe(|| {
+                let res = mixer
+                    .audio_commands_events()
+                    .and_then(|()| mixer.check_and_send_keepalive(self.start_of_work));
+                rebuild_if_err(mixer, res, cull_marker);
+            }));
+
+            if phase.is_err() {
+                *packet_len = PANICKED_MIXER_PACKET_LEN;
+                contain_panicked_mixer(mixer, cull_marker);
+            }
         }
 
         true
@@ -357,40 +400,48 @@ impl Live {
     /// Handle messages from each tasks's `Driver`, marking dead tasks for removal.
     #[inline]
     fn handle_task_msgs(&mut self) {
-        for (i, (packet, mixer)) in self
+        for (((packet, packet_len), mixer), cull_marker) in self
             .packets
             .iter_mut()
             .flat_map(|v| v.chunks_exact_mut(VOICE_PACKET_MAX))
+            .zip(self.packet_lens.iter())
             .zip(self.tasks.iter_mut())
-            .enumerate()
+            .zip(self.to_cull.iter_mut())
         {
-            let mut events_failure = false;
-            let mut conn_failure = false;
+            if *packet_len == PANICKED_MIXER_PACKET_LEN {
+                continue;
+            }
 
-            let fatal = loop {
-                match mixer.mix_rx.try_recv() {
-                    Ok(m) => {
-                        let (events, conn, should_exit) = mixer.handle_message(m, packet);
-                        events_failure |= events;
-                        conn_failure |= conn;
+            let phase = catch_unwind(AssertUnwindSafe(|| {
+                let mut events_failure = false;
+                let mut conn_failure = false;
 
-                        if should_exit {
+                let fatal = loop {
+                    match mixer.mix_rx.try_recv() {
+                        Ok(m) => {
+                            let (events, conn, should_exit) = mixer.handle_message(m, packet);
+                            events_failure |= events;
+                            conn_failure |= conn;
+
+                            if should_exit {
+                                break true;
+                            }
+                        },
+                        Err(TryRecvError::Disconnected) => {
                             break true;
-                        }
-                    },
-                    Err(TryRecvError::Disconnected) => {
-                        break true;
-                    },
+                        },
+                        Err(TryRecvError::Empty) => {
+                            break false;
+                        },
+                    }
+                };
 
-                    Err(TryRecvError::Empty) => {
-                        break false;
-                    },
-                }
-            };
+                fatal || mixer.do_rebuilds(events_failure, conn_failure).is_err()
+            }));
 
-            if fatal || mixer.do_rebuilds(events_failure, conn_failure).is_err() {
-                // this is not zipped in because it is *not* needed most ticks.
-                self.to_cull[i] = true;
+            match phase {
+                Ok(should_cull) => *cull_marker |= should_cull,
+                Err(_) => contain_panicked_mixer(mixer, cull_marker),
             }
         }
     }
@@ -678,20 +729,24 @@ fn advance_rtp_counters(packet: &mut [u8]) {
 /// Structured slightly confusingly: we only want to even access `cull_markers`
 /// in the event of error.
 #[inline]
-fn rebuild_if_err<T>(
-    mixer: &mut Box<Mixer>,
-    res: Result<T, DriverError>,
-    cull_markers: &mut [bool],
-    idx: usize,
-) {
+fn rebuild_if_err<T>(mixer: &mut Box<Mixer>, res: Result<T, DriverError>, cull_marker: &mut bool) {
     if let Err(e) = res {
-        cull_markers[idx] |= mixer
+        *cull_marker |= mixer
             .do_rebuilds(
                 e.should_trigger_interconnect_rebuild(),
                 e.should_trigger_connect(),
             )
             .is_err();
     }
+}
+
+#[inline]
+fn contain_panicked_mixer(mixer: &mut Box<Mixer>, cull_marker: &mut bool) {
+    *cull_marker = true;
+    _ = mixer
+        .interconnect
+        .core
+        .send(crate::driver::tasks::message::CoreMessage::Poison);
 }
 
 #[cfg(test)]

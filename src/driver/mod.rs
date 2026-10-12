@@ -848,6 +848,209 @@ async fn lcr_critical_event_seams_accept_live_core() {
     );
 }
 
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+struct LcrR0cPanickingRawSource {
+    armed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pulls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+impl RawOpusSource for LcrR0cPanickingRawSource {
+    fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+        const FRAME: &[u8] = &[0x11, 0x22, 0x33, 0x44];
+
+        self.pulls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !self.armed.load(std::sync::atomic::Ordering::SeqCst),
+            "R0C controlled per-Mixer panic"
+        );
+
+        dst[..FRAME.len()].copy_from_slice(FRAME);
+        RawOpusRead::Frame(FRAME.len())
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+struct LcrR0cHealthyRawSource {
+    pulls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+impl RawOpusSource for LcrR0cHealthyRawSource {
+    fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+        const FRAME: &[u8] = &[0xaa, 0xbb, 0xcc, 0xdd];
+
+        self.pulls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        dst[..FRAME.len()].copy_from_slice(FRAME);
+        RawOpusRead::Frame(FRAME.len())
+    }
+}
+
+#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[tokio::test]
+async fn lcr_r0c_panicking_mixer_is_contained_to_one_shared_worker_peer() {
+    use std::{num::NonZeroUsize, sync::atomic::Ordering as AtomicOrdering};
+
+    let scheduler = Scheduler::new(SchedulerConfig {
+        strategy: SchedulerMode::MaxPerThread(
+            NonZeroUsize::new(2).expect("two Mixers per worker is non-zero"),
+        ),
+        move_expensive_tasks: false,
+    });
+    let (tick_tx, tick_rx) = flume::unbounded();
+    let (out_a_tx, out_a_rx) = flume::unbounded();
+    let (out_b_tx, out_b_rx) = flume::unbounded();
+
+    let config_a = Config::default()
+        .tick_style(TickStyle::UntimedWithExecLimit(tick_rx.clone()))
+        .scheduler(scheduler.clone())
+        .override_connection(Some(OutputMode::Raw(out_a_tx)));
+    let config_b = Config::default()
+        .tick_style(TickStyle::UntimedWithExecLimit(tick_rx))
+        .scheduler(scheduler.clone())
+        .override_connection(Some(OutputMode::Raw(out_b_tx)));
+
+    let mut driver_a = Driver::new(config_a);
+    let mut driver_b = Driver::new(config_b);
+    let completion_a = driver_a
+        .lcr_take_core_task_completion()
+        .expect("Driver A owns its exact core completion token");
+    let completion_b = driver_b
+        .lcr_take_core_task_completion()
+        .expect("Driver B owns its exact core completion token");
+
+    let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pulls_a = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pulls_b = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let handle_a = driver_a
+        .lcr_try_play_only_raw_opus(LcrR0cPanickingRawSource {
+            armed: std::sync::Arc::clone(&armed),
+            pulls: std::sync::Arc::clone(&pulls_a),
+        })
+        .expect("Driver A raw source install reaches its live core");
+    let _handle_b = driver_b
+        .lcr_try_play_only_raw_opus(LcrR0cHealthyRawSource {
+            pulls: std::sync::Arc::clone(&pulls_b),
+        })
+        .expect("Driver B raw source install reaches its live core");
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if scheduler.live_tasks() == 2
+                && scheduler.worker_threads() == 1
+                && pulls_a.load(AtomicOrdering::SeqCst) >= 1
+                && pulls_b.load(AtomicOrdering::SeqCst) >= 1
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("two live Mixers must share exactly one worker before fault");
+
+    assert_eq!(scheduler.total_tasks(), 2);
+    assert_eq!(scheduler.live_tasks(), 2);
+    assert_eq!(scheduler.worker_threads(), 1);
+
+    armed.store(true, AtomicOrdering::SeqCst);
+    tick_tx
+        .send(1)
+        .expect("release pre-fault worker tick");
+
+    let pre_a = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        out_a_rx.recv_async(),
+    )
+    .await
+    .expect("Driver A pre-fault output timed out")
+    .expect("Driver A pre-fault output channel closed");
+    let pre_b = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        out_b_rx.recv_async(),
+    )
+    .await
+    .expect("Driver B pre-fault output timed out")
+    .expect("Driver B pre-fault output channel closed");
+    assert!(matches!(pre_a, TickMessage::El(OutputMessage::Passthrough(_))));
+    assert!(matches!(pre_b, TickMessage::El(OutputMessage::Passthrough(_))));
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if handle_a.is_ended() && pulls_a.load(AtomicOrdering::SeqCst) >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("controlled Mixer A panic was not observed");
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        completion_a.wait(),
+    )
+    .await
+    .expect("Mixer A containment did not terminalize Driver A core")
+    .expect("Driver A core should return cleanly after containment Poison");
+
+    assert_eq!(scheduler.worker_threads(), 1, "shared worker must survive A panic");
+
+    tick_tx
+        .send(1)
+        .expect("release post-fault worker tick");
+
+    let post_b = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        out_b_rx.recv_async(),
+    )
+    .await
+    .expect("healthy peer produced no post-fault output")
+    .expect("healthy peer output channel closed");
+    assert!(matches!(post_b, TickMessage::El(OutputMessage::Passthrough(_))));
+    assert!(
+        out_a_rx.is_empty(),
+        "panicked Mixer A must skip the remaining send phase of its fault tick"
+    );
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if scheduler.live_tasks() == 1 && scheduler.total_tasks() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("failed Mixer A was not culled from the shared worker");
+
+    assert_eq!(scheduler.worker_threads(), 1, "R0C must not replace the worker");
+    assert_eq!(
+        pulls_a.load(AtomicOrdering::SeqCst),
+        2,
+        "panicked Mixer A must never execute again after containment"
+    );
+    assert!(
+        driver_b.lcr_try_remove_all_global_events().is_ok(),
+        "healthy peer Driver B core must still accept commands"
+    );
+    assert!(pulls_b.load(AtomicOrdering::SeqCst) >= 2);
+
+    drop(driver_a);
+    drop(driver_b);
+    drop(tick_tx);
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        completion_b.wait(),
+    )
+    .await
+    .expect("healthy peer Driver B cleanup timed out")
+    .expect("healthy peer Driver B core must not panic");
+}
 #[cfg(test)]
 fn lcr_test_connection_info() -> ConnectionInfo {
     let one = std::num::NonZeroU64::new(1)
