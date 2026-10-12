@@ -159,7 +159,19 @@ impl LcrCausalDispatcher {
 }
 
 pub(crate) async fn runner(receiver: LcrCausalReceiver, core: Sender<CoreMessage>) {
-    while let Ok(message) = receiver.rx.recv_async().await {
+    loop {
+        let Ok(message) = receiver.rx.recv_async().await else {
+            let expected_close = receiver
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .closed;
+            if !expected_close {
+                drop(core.send(CoreMessage::Poison));
+            }
+            break;
+        };
+
         let (generation, event) = match message {
             LcrCausalMessage::Poison => break,
             LcrCausalMessage::Event { generation, event } => (generation, event),
@@ -238,6 +250,29 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 0, "poison fences pending work");
     }
 
+    #[tokio::test]
+    async fn unexpected_sender_disconnect_poison_exact_core() {
+        let (dispatcher, receiver) = LcrCausalDispatcher::new();
+        let (core_tx, core_rx) = flume::unbounded();
+        let task = tokio::spawn(runner(receiver, core_tx));
+
+        drop(dispatcher);
+
+        task.await.expect("causal runner exits after sender disconnect");
+        assert!(matches!(core_rx.try_recv(), Ok(CoreMessage::Poison)));
+    }
+
+    #[tokio::test]
+    async fn explicit_poison_exits_without_terminalizing_core() {
+        let (dispatcher, receiver) = LcrCausalDispatcher::new();
+        let (core_tx, core_rx) = flume::unbounded();
+        let task = tokio::spawn(runner(receiver, core_tx));
+
+        dispatcher.poison();
+
+        task.await.expect("causal runner exits after explicit poison");
+        assert!(core_rx.try_recv().is_err());
+    }
     struct RecordingHandler(Sender<&'static str>);
 
     #[async_trait::async_trait]

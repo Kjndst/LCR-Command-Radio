@@ -1,10 +1,14 @@
 use super::*;
+#[cfg(not(feature = "lcr-raw-events"))]
 use crate::{
     constants::*,
     tracks::{ReadyState, TrackHandle, TrackState},
 };
 use enum_map::EnumMap;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::BinaryHeap;
+#[cfg(not(feature = "lcr-raw-events"))]
+use std::collections::HashMap;
+#[cfg(not(feature = "lcr-raw-events"))]
 use tracing::info;
 
 #[derive(Debug, Default)]
@@ -70,6 +74,7 @@ impl EventStore {
     }
 
     /// Processes all events due up to and including `now`.
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) async fn process_timed(&mut self, now: Duration, ctx: EventContext<'_>) {
         while let Some(evt) = self.timed.peek() {
             if evt
@@ -97,6 +102,7 @@ impl EventStore {
     }
 
     /// Processes all events due up to and including `now`.
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) fn timed_event_ready(&self, now: Duration) -> bool {
         self.timed.peek().is_some_and(|evt| {
             evt.fire_time
@@ -107,6 +113,7 @@ impl EventStore {
     }
 
     /// Processes all events attached to the given track event.
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) async fn process_untimed(
         &mut self,
         now: Duration,
@@ -145,6 +152,7 @@ impl EventStore {
     }
 }
 
+#[cfg(not(feature = "lcr-raw-events"))]
 #[derive(Debug, Default)]
 pub(crate) struct GlobalEvents {
     pub(crate) store: EventStore,
@@ -152,6 +160,7 @@ pub(crate) struct GlobalEvents {
     pub(crate) awaiting_tick: HashMap<TrackEvent, Vec<usize>>,
 }
 
+#[cfg(not(feature = "lcr-raw-events"))]
 impl GlobalEvents {
     pub(crate) fn add_event(&mut self, evt: EventData) {
         self.store.add_event(evt, self.time);

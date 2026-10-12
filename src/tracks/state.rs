@@ -31,6 +31,7 @@ pub struct TrackState {
 }
 
 impl TrackState {
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) fn step_frame(&mut self) {
         self.position += TIMESTEP_LENGTH;
         self.play_time += TIMESTEP_LENGTH;

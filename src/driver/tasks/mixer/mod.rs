@@ -155,7 +155,7 @@ impl Mixer {
             interconnect,
             mix_rx,
             muted: false,
-            prevent_events: false,
+            prevent_events: cfg!(feature = "lcr-raw-events"),
             silence_frames: 0,
             soft_clip,
             thread_pool,
@@ -291,7 +291,10 @@ impl Mixer {
                 Ok(())
             },
             MixerMessage::ReplaceInterconnect(i) => {
-                self.prevent_events = false;
+                #[cfg(not(feature = "lcr-raw-events"))]
+                {
+                    self.prevent_events = false;
+                }
 
                 if let Some(ws) = &self.ws {
                     conn_failure |= ws.send(WsMessage::ReplaceInterconnect(i.clone())).is_err();
@@ -529,6 +532,7 @@ impl Mixer {
 
         // Tick -- receive side also handles removals in same manner after it increments
         // times etc.
+        #[cfg(not(feature = "lcr-raw-events"))]
         self.fire_event(EventMessage::Tick)?;
 
         Ok(())

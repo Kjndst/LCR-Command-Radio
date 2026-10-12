@@ -72,6 +72,7 @@ pub enum CoreContext {
     DriverDisconnect(InternalDisconnect),
 }
 
+#[cfg(not(feature = "lcr-raw-events"))]
 impl<'a> CoreContext {
     pub(crate) fn to_user_context(&'a self) -> EventContext<'a> {
         match self {

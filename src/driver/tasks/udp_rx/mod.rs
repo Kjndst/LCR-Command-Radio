@@ -9,15 +9,19 @@ mod ssrc_state;
 use self::{decode_sizes::*, playout_buffer::*, ssrc_state::*};
 
 use super::message::*;
-use crate::driver::{CryptoMode, LcrImmediateDispatchOutcome, LcrImmediateEvent};
+use crate::driver::{CryptoMode, LcrImmediateEvent};
 #[cfg(not(feature = "lcr-raw-receive"))]
 use crate::driver::DecodeMode;
 use crate::{
     constants::*,
     driver::crypto::Cipher,
-    events::{context_data::RtpData, internal_data::*, CoreContext},
+    events::{context_data::RtpData, internal_data::*},
     Config,
 };
+#[cfg(not(feature = "lcr-raw-events"))]
+use crate::driver::LcrImmediateDispatchOutcome;
+#[cfg(not(feature = "lcr-raw-events"))]
+use crate::events::CoreContext;
 #[cfg(not(feature = "lcr-raw-receive"))]
 use crate::events::context_data::VoiceTick;
 use bytes::BytesMut;
@@ -354,11 +358,14 @@ impl UdpRx {
                 #[cfg(feature = "lcr-raw-receive")]
                 let _ = (packet, decrypted);
 
+                #[cfg(not(feature = "lcr-raw-events"))]
                 if immediate_outcome == LcrImmediateDispatchOutcome::NotInstalled {
                     drop(interconnect.events.send(EventMessage::FireCoreEvent(
                         CoreContext::RtpPacket(immediate_rtp),
                     )));
                 }
+                #[cfg(feature = "lcr-raw-events")]
+                let _ = immediate_outcome;
             },
             DemuxedMut::Rtcp(mut rtcp) => {
                 let packet_data = if self.config.decode_mode.should_decrypt() {
@@ -380,6 +387,7 @@ impl UdpRx {
                     )
                 });
 
+                #[cfg(not(feature = "lcr-raw-events"))]
                 drop(interconnect.events.send(EventMessage::FireCoreEvent(
                     CoreContext::RtcpPacket(InternalRtcpPacket {
                         packet: packet.freeze(),
@@ -387,6 +395,8 @@ impl UdpRx {
                         payload_end_pad: tail,
                     }),
                 )));
+                #[cfg(feature = "lcr-raw-events")]
+                let _ = (packet, start, tail);
             },
             DemuxedMut::FailedParse(t) => {
                 warn!("Failed to parse message of type {:?}.", t);

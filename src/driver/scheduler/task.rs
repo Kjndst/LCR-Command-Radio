@@ -11,11 +11,14 @@ use tokio::runtime::Handle;
 use crate::{
     driver::tasks::{
         error::Error as DriverError,
-        message::{EventMessage, Interconnect, MixerMessage},
+        message::{Interconnect, MixerMessage},
         mixer::Mixer,
     },
     Config,
 };
+
+#[cfg(not(feature = "lcr-raw-events"))]
+use crate::driver::tasks::message::EventMessage;
 
 use super::SchedulerMessage;
 
@@ -176,7 +179,10 @@ impl ParkedMixer {
         // TODO: should we include an atomic which signals whether the event
         //  thread *cares*, so we can prevent wakeups?
         //  Can we do the same for live tracks?
+        #[cfg(not(feature = "lcr-raw-events"))]
         let mut events_failure = self.mixer.fire_event(EventMessage::Tick).is_err();
+        #[cfg(feature = "lcr-raw-events")]
+        let mut events_failure = false;
 
         let ka_err = self
             .mixer

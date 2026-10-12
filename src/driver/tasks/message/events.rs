@@ -17,6 +17,7 @@ pub enum EventMessage {
     AddTrack(EventStore, TrackState, TrackHandle),
     ChangeState(usize, TrackStateChange),
     RemoveAllTracks,
+    #[cfg(not(feature = "lcr-raw-events"))]
     Tick,
 
     Poison,

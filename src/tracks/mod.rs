@@ -40,7 +40,9 @@ pub use self::{
 };
 pub(crate) use command::*;
 
-use crate::{constants::*, driver::tasks::message::*, events::EventStore, input::Input};
+#[cfg(not(feature = "lcr-raw-events"))]
+use crate::constants::*;
+use crate::{driver::tasks::message::*, events::EventStore, input::Input};
 use std::{any::Any, sync::Arc, time::Duration};
 use uuid::Uuid;
 

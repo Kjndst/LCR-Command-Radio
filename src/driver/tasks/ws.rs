@@ -1,7 +1,6 @@
 use super::message::*;
 use crate::{
     driver::{tasks::error::DaveReinitError, LcrImmediateEvent},
-    events::CoreContext,
     model::{
         payload::{Heartbeat, Speaking},
         CloseCode as VoiceCloseCode,
@@ -12,6 +11,8 @@ use crate::{
     ws::{Error as WsError, WsStream},
     ConnectionInfo,
 };
+#[cfg(not(feature = "lcr-raw-events"))]
+use crate::events::CoreContext;
 use flume::Receiver;
 use rand::{distr::Uniform, Rng};
 use serenity_voice_model::{
@@ -313,6 +314,7 @@ impl AuxNetwork {
                     microphone: ev.speaking.microphone(),
                 });
 
+                #[cfg(not(feature = "lcr-raw-events"))]
                 drop(interconnect.events.send(EventMessage::FireCoreEvent(
                     CoreContext::SpeakingStateUpdate(ev),
                 )));
@@ -334,6 +336,7 @@ impl AuxNetwork {
 
                 self.recognized_user_ids.remove(&ev.user_id);
 
+                #[cfg(not(feature = "lcr-raw-events"))]
                 drop(interconnect.events.send(EventMessage::FireCoreEvent(
                     CoreContext::ClientDisconnect(ev),
                 )));

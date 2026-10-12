@@ -2,6 +2,7 @@
 
 pub(crate) mod disposal;
 pub mod error;
+#[cfg(not(feature = "lcr-raw-events"))]
 mod events;
 pub mod message;
 pub mod mixer;
@@ -15,12 +16,13 @@ use crate::{
     events::{
         context_data::{DisconnectKind, DisconnectReason},
         internal_data::{InternalConnect, InternalDisconnect},
-        CoreContext,
     },
     Config,
     ConnectionInfo,
     FloatDuration,
 };
+#[cfg(any(test, not(feature = "lcr-raw-events")))]
+use crate::events::CoreContext;
 use flume::{Receiver, Sender};
 use message::*;
 use tokio::{spawn, task::JoinHandle, time::sleep as tsleep};
@@ -47,29 +49,49 @@ fn fire_lcr_driver_disconnect(interconnect: &Interconnect, event: InternalDiscon
         kind: event.kind,
         reason: event.reason,
     });
+    #[cfg(not(feature = "lcr-raw-events"))]
     drop(interconnect.events.send(EventMessage::FireCoreEvent(
         CoreContext::DriverDisconnect(event),
     )));
+    #[cfg(feature = "lcr-raw-events")]
+    drop(event);
 }
 
-fn fire_lcr_driver_reconnect(interconnect: &Interconnect, event: InternalConnect) {
+fn fire_lcr_driver_reconnect(interconnect: &Interconnect, _event: InternalConnect) {
     let _ = interconnect.dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
     let _ = interconnect.dispatch_lcr_causal(LcrCausalEvent::DriverReconnect);
+    #[cfg(not(feature = "lcr-raw-events"))]
     drop(interconnect.events.send(EventMessage::FireCoreEvent(
-        CoreContext::DriverReconnect(event),
+        CoreContext::DriverReconnect(_event),
     )));
 }
 
 fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {
+    #[cfg(not(feature = "lcr-raw-events"))]
     let (evt_tx, evt_rx) = flume::unbounded();
+    #[cfg(feature = "lcr-raw-events")]
+    let (evt_tx, evt_rx) = flume::bounded(0);
+    #[cfg(feature = "lcr-raw-events")]
+    drop(evt_rx);
+
     let (mix_tx, mix_rx) = flume::unbounded();
     let (lcr_causal, lcr_causal_rx) = LcrCausalDispatcher::new();
 
     let causal_core = core.clone();
     spawn(async move {
-        super::lcr_causal::runner(lcr_causal_rx, causal_core).await;
+        use futures::FutureExt;
+        let result = std::panic::AssertUnwindSafe(super::lcr_causal::runner(
+            lcr_causal_rx,
+            causal_core.clone(),
+        ))
+        .catch_unwind()
+        .await;
+        if result.is_err() {
+            drop(causal_core.send(CoreMessage::Poison));
+        }
     });
 
+    #[cfg(not(feature = "lcr-raw-events"))]
     spawn(async move {
         trace!("Event processor started.");
         events::runner(evt_rx).await;
@@ -381,29 +403,34 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                                 phase
                             );
                         }
-                    } else if let Some(ref connection) = &connection {
+                    } else if let Some(ref _connection) = &connection {
                         let _ = interconnect
                             .dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
                         let _ = interconnect
                             .dispatch_lcr_causal(LcrCausalEvent::DriverReconnect);
-                        let event_send =
-                            interconnect
-                                .events
-                                .send(EventMessage::FireCoreEvent(
-                                    CoreContext::DriverReconnect(InternalConnect {
-                                        info: connection.info.clone(),
-                                        ssrc: connection.ssrc,
-                                    }),
-                                ));
+                        #[cfg(not(feature = "lcr-raw-events"))]
+                        {
+                            let event_send = interconnect.events.send(EventMessage::FireCoreEvent(
+                                CoreContext::DriverReconnect(InternalConnect {
+                                    info: _connection.info.clone(),
+                                    ssrc: _connection.ssrc,
+                                }),
+                            ));
 
-                        #[cfg(feature = "lcr-controlled-fault")]
+                            #[cfg(feature = "lcr-controlled-fault")]
+                            eprintln!(
+                                "LCR_G3_RECONNECT_PHASE seq={} phase=DRIVER_RECONNECT_EVENT_SEND status={}",
+                                lcr_reconnect_phase_seq,
+                                if event_send.is_ok() { "OK" } else { "ERR" }
+                            );
+
+                            drop(event_send);
+                        }
+
+                        #[cfg(all(feature = "lcr-controlled-fault", feature = "lcr-raw-events"))]
                         eprintln!(
-                            "LCR_G3_RECONNECT_PHASE seq={} phase=DRIVER_RECONNECT_EVENT_SEND status={}",
-                            lcr_reconnect_phase_seq,
-                            if event_send.is_ok() { "OK" } else { "ERR" }
+                            "LCR_G3_RECONNECT_PHASE seq={lcr_reconnect_phase_seq} phase=DRIVER_RECONNECT_EVENT_SEND status=SKIPPED_RAW"
                         );
-
-                        drop(event_send);
                     }
                 } else {
                     #[cfg(feature = "lcr-controlled-fault")]
@@ -490,6 +517,7 @@ impl ConnectionRetryData {
                         // Other side may not be listening: this is fine.
                         drop(tx.send(Ok(())));
 
+                        #[cfg(not(feature = "lcr-raw-events"))]
                         drop(interconnect.events.send(EventMessage::FireCoreEvent(
                             CoreContext::DriverConnect(InternalConnect {
                                 info: connection.info.clone(),

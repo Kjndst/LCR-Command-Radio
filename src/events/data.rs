@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 pub struct EventData {
     pub(crate) event: Event,
     pub(crate) fire_time: Option<Duration>,
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) action: Box<dyn EventHandler>,
 }
 
@@ -22,9 +23,13 @@ impl EventData {
     /// [`Delayed`]: Event::Delayed
     /// [`Cancel`]: Event::Cancel
     pub fn new<F: EventHandler + 'static>(event: Event, action: F) -> Self {
+        #[cfg(feature = "lcr-raw-events")]
+        drop(action);
+
         Self {
             event,
             fire_time: None,
+            #[cfg(not(feature = "lcr-raw-events"))]
             action: Box::new(action),
         }
     }

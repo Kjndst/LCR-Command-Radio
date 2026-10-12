@@ -162,6 +162,7 @@ twilight = ["dep:twilight-gateway", "dep:twilight-model"]
 builtin-queue = []
 receive = ["dep:bytes", "discortp?/demux", "discortp?/rtcp"]
 lcr-raw-receive = ["driver", "receive"]
+lcr-raw-events = ["lcr-raw-receive"]
 
 # Used for docgen/testing/benchmarking.
 full-doc = ["default", "tungstenite", "twilight", "builtin-queue", "receive"]

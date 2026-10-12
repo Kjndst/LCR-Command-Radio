@@ -17,7 +17,9 @@ use crate::driver::{
     LcrImmediateDispatchOutcome, LcrImmediateDispatcher, LcrImmediateEvent,
 };
 use flume::Sender;
+#[cfg(not(feature = "lcr-raw-events"))]
 use tokio::spawn;
+#[cfg(not(feature = "lcr-raw-events"))]
 use tracing::trace;
 
 #[derive(Clone, Debug)]
@@ -65,22 +67,27 @@ impl Interconnect {
     ) {
         self.poison();
 
-        let (evt_tx, evt_rx) = flume::unbounded();
+        #[cfg(not(feature = "lcr-raw-events"))]
+        {
+            let (evt_tx, evt_rx) = flume::unbounded();
+            self.events = evt_tx;
 
-        self.events = evt_tx;
+            for event in persistent_core_events {
+                drop(
+                    self.events
+                        .send(EventMessage::AddGlobalEvent(event.event_data())),
+                );
+            }
 
-        for event in persistent_core_events {
-            drop(
-                self.events
-                    .send(EventMessage::AddGlobalEvent(event.event_data())),
-            );
+            spawn(async move {
+                trace!("Event processor restarted.");
+                super::events::runner(evt_rx).await;
+                trace!("Event processor finished.");
+            });
         }
 
-        spawn(async move {
-            trace!("Event processor restarted.");
-            super::events::runner(evt_rx).await;
-            trace!("Event processor finished.");
-        });
+        #[cfg(feature = "lcr-raw-events")]
+        let _ = persistent_core_events;
 
         // Make mixer aware of new targets...
         drop(

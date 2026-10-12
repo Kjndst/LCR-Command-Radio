@@ -61,6 +61,7 @@ impl PlayMode {
     // in the rare error case.
     // Also, see discussion on bitsets in src/events/track.rs
     #[must_use]
+    #[cfg(not(feature = "lcr-raw-events"))]
     pub(crate) fn also_fired_track_events(&self) -> Option<Vec<TrackEvent>> {
         match self {
             Self::Errored(_) => Some(vec![TrackEvent::End]),
