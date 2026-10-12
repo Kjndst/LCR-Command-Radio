@@ -45,7 +45,7 @@ pub enum CoreEvent {
     /// or changes their capabilities.
     SpeakingStateUpdate,
 
-    #[cfg(feature = "receive")]
+    #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
     /// Fires every 20ms, containing the scheduled voice packet and decoded audio
     /// data for each live user.
     VoiceTick,

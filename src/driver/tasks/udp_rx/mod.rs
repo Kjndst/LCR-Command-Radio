@@ -1,17 +1,25 @@
+#[cfg(not(feature = "lcr-raw-receive"))]
 mod decode_sizes;
+#[cfg(not(feature = "lcr-raw-receive"))]
 mod playout_buffer;
+#[cfg(not(feature = "lcr-raw-receive"))]
 mod ssrc_state;
 
+#[cfg(not(feature = "lcr-raw-receive"))]
 use self::{decode_sizes::*, playout_buffer::*, ssrc_state::*};
 
 use super::message::*;
-use crate::driver::{CryptoMode, DecodeMode, LcrImmediateDispatchOutcome, LcrImmediateEvent};
+use crate::driver::{CryptoMode, LcrImmediateDispatchOutcome, LcrImmediateEvent};
+#[cfg(not(feature = "lcr-raw-receive"))]
+use crate::driver::DecodeMode;
 use crate::{
     constants::*,
     driver::crypto::Cipher,
-    events::{context_data::{RtpData, VoiceTick}, internal_data::*, CoreContext},
+    events::{context_data::RtpData, internal_data::*, CoreContext},
     Config,
 };
+#[cfg(not(feature = "lcr-raw-receive"))]
+use crate::events::context_data::VoiceTick;
 use bytes::BytesMut;
 use discortp::{
     demux::{self, DemuxedMut},
@@ -23,22 +31,26 @@ use std::sync::{
     atomic::{AtomicU16, Ordering},
     RwLock,
 };
+use std::{sync::Arc, time::Duration};
+#[cfg(not(feature = "lcr-raw-receive"))]
 use std::{
     collections::{HashMap, HashSet},
     num::Wrapping,
-    sync::Arc,
-    time::Duration,
 };
 use tokio::{net::UdpSocket, select, time::Instant};
 use tracing::{error, instrument, trace, warn};
 
+#[cfg(not(feature = "lcr-raw-receive"))]
 type RtpSequence = Wrapping<u16>;
+#[cfg(not(feature = "lcr-raw-receive"))]
 type RtpTimestamp = Wrapping<u32>;
+#[cfg(not(feature = "lcr-raw-receive"))]
 type RtpSsrc = u32;
 
 struct UdpRx {
     cipher: Cipher,
     crypto_mode: CryptoMode,
+    #[cfg(not(feature = "lcr-raw-receive"))]
     decoder_map: HashMap<RtpSsrc, SsrcState>,
     config: Config,
     rx: Receiver<UdpRxMessage>,
@@ -49,6 +61,67 @@ struct UdpRx {
 }
 
 impl UdpRx {
+    #[cfg(not(feature = "lcr-raw-receive"))]
+    fn handle_control_message(&mut self, interconnect: &mut Interconnect, msg: UdpRxMessage) {
+        match msg {
+            UdpRxMessage::ReplaceInterconnect(i) => {
+                *interconnect = i;
+            },
+            UdpRxMessage::SetConfig(new_config) => {
+                if let DecodeMode::Decode(old_config) = &mut self.config.decode_mode {
+                    if *old_config != new_config {
+                        *old_config = new_config;
+                        self.decoder_map
+                            .values_mut()
+                            .for_each(|v| v.reconfigure_decoder(new_config));
+                    }
+                }
+            },
+        }
+    }
+
+    #[cfg(feature = "lcr-raw-receive")]
+    fn handle_control_message(interconnect: &mut Interconnect, msg: UdpRxMessage) {
+        match msg {
+            UdpRxMessage::ReplaceInterconnect(i) => {
+                *interconnect = i;
+            },
+        }
+    }
+
+    fn cleanup_ssrc_state(&mut self, _now: Instant) {
+        loop {
+            let id = {
+                if let Some(id) = self
+                    .ssrc_signalling
+                    .disconnected_users
+                    .iter()
+                    .next()
+                    .map(|v| *v.key())
+                {
+                    id
+                } else {
+                    break;
+                }
+            };
+
+            _ = self.ssrc_signalling.disconnected_users.remove(&id);
+            if let Some((_, ssrc)) = self.ssrc_signalling.user_ssrc_map.remove(&id) {
+                let _ = self.ssrc_signalling.ssrc_user_map.remove(&ssrc);
+
+                #[cfg(not(feature = "lcr-raw-receive"))]
+                if let Some(state) = self.decoder_map.get_mut(&ssrc) {
+                    state.prune_time = _now + Duration::from_secs(1);
+                    state.disconnected = true;
+                }
+            }
+        }
+
+        #[cfg(not(feature = "lcr-raw-receive"))]
+        self.decoder_map.retain(|_, v| v.prune_time > _now);
+    }
+
+    #[cfg(not(feature = "lcr-raw-receive"))]
     #[instrument(skip(self))]
     async fn run(&mut self, interconnect: &mut Interconnect) {
         let mut cleanup_time = Instant::now();
@@ -64,22 +137,11 @@ impl UdpRx {
                 Ok((len, _addr)) = self.udp_socket.recv_from(byte_dest.as_mut().unwrap()) => {
                     let mut pkt = byte_dest.take().unwrap();
                     pkt.truncate(len);
-
-                    self.process_udp_message(interconnect, pkt).await;
+                    self.process_udp_message(interconnect, pkt);
                 },
                 msg = self.rx.recv_async() => {
                     match msg {
-                        Ok(UdpRxMessage::ReplaceInterconnect(i)) => {
-                            *interconnect = i;
-                        },
-                        Ok(UdpRxMessage::SetConfig(new_config)) => {
-                            if let DecodeMode::Decode(old_config) = &mut self.config.decode_mode {
-                                if *old_config != new_config {
-                                    *old_config = new_config;
-                                    self.decoder_map.values_mut().for_each(|v| v.reconfigure_decoder(new_config));
-                                }
-                            }
-                        },
+                        Ok(msg) => self.handle_control_message(interconnect, msg),
                         Err(flume::RecvError::Disconnected) => break,
                     }
                 },
@@ -107,50 +169,51 @@ impl UdpRx {
                     }
 
                     playout_time += TIMESTEP_LENGTH;
-
-                    drop(interconnect.events.send(EventMessage::FireCoreEvent(CoreContext::VoiceTick(tick))));
+                    drop(interconnect.events.send(EventMessage::FireCoreEvent(
+                        CoreContext::VoiceTick(tick),
+                    )));
                 },
                 () = tokio::time::sleep_until(cleanup_time) => {
-                    // periodic cleanup.
                     let now = Instant::now();
-
-                    // check ssrc map to see if the WS task has informed us of any disconnects.
-                    loop {
-                        // This is structured in an odd way to prevent deadlocks.
-                        // while-let seemed to keep the dashmap iter() alive for block scope, rather than
-                        // just the initialiser.
-                        let id = {
-                            if let Some(id) = self.ssrc_signalling.disconnected_users.iter().next().map(|v| *v.key()) {
-                                id
-                            } else {
-                                break;
-                            }
-                        };
-
-                        _ = self.ssrc_signalling.disconnected_users.remove(&id);
-                        if let Some((_, ssrc)) = self.ssrc_signalling.user_ssrc_map.remove(&id) {
-                            let _ = self.ssrc_signalling.ssrc_user_map.remove(&ssrc);
-
-                            if let Some(state) = self.decoder_map.get_mut(&ssrc) {
-                                // don't cleanup immediately: leave for later cycle
-                                // this is key with reorder/jitter buffers where we may
-                                // still need to decode post disconnect for ~0.2s.
-                                state.prune_time = now + Duration::from_secs(1);
-                                state.disconnected = true;
-                            }
-                        }
-                    }
-
-                    // now remove all dead ssrcs.
-                    self.decoder_map.retain(|_, v| v.prune_time > now);
-
+                    self.cleanup_ssrc_state(now);
                     cleanup_time = now + Duration::from_secs(5);
                 },
             }
         }
     }
 
-    async fn process_udp_message(&mut self, interconnect: &Interconnect, mut packet: BytesMut) {
+    #[cfg(feature = "lcr-raw-receive")]
+    #[instrument(skip(self))]
+    async fn run(&mut self, interconnect: &mut Interconnect) {
+        let mut cleanup_time = Instant::now();
+        let mut byte_dest: Option<BytesMut> = None;
+
+        loop {
+            if byte_dest.is_none() {
+                byte_dest = Some(BytesMut::zeroed(VOICE_PACKET_MAX));
+            }
+
+            select! {
+                Ok((len, _addr)) = self.udp_socket.recv_from(byte_dest.as_mut().unwrap()) => {
+                    let mut pkt = byte_dest.take().unwrap();
+                    pkt.truncate(len);
+                    self.process_udp_message(interconnect, pkt);
+                },
+                msg = self.rx.recv_async() => {
+                    match msg {
+                        Ok(msg) => Self::handle_control_message(interconnect, msg),
+                        Err(flume::RecvError::Disconnected) => break,
+                    }
+                },
+                () = tokio::time::sleep_until(cleanup_time) => {
+                    let now = Instant::now();
+                    self.cleanup_ssrc_state(now);
+                    cleanup_time = now + Duration::from_secs(5);
+                },
+            }
+        }
+    }
+    fn process_udp_message(&mut self, interconnect: &Interconnect, mut packet: BytesMut) {
         // NOTE: errors here (and in general for UDP) are not fatal to the connection.
         // Panics should be avoided due to adversarial nature of rx'd packets,
         // but correct handling should not prompt a reconnect.
@@ -261,6 +324,7 @@ impl UdpRx {
                 });
 
                 let packet = packet.freeze();
+                #[cfg(not(feature = "lcr-raw-receive"))]
                 let rtp = RtpPacket::new(&packet)
                     .expect("validated RTP packet remains parseable after decryption");
                 let immediate_rtp = InternalRtpPacket {
@@ -273,17 +337,22 @@ impl UdpRx {
                     LcrImmediateEvent::Rtp(RtpData::from(&immediate_rtp)),
                 );
 
-                let entry = self
-                    .decoder_map
-                    .entry(rtp.get_ssrc())
-                    .or_insert_with(|| SsrcState::new(&rtp, crypto_mode, &self.config));
+                #[cfg(not(feature = "lcr-raw-receive"))]
+                {
+                    let entry = self
+                        .decoder_map
+                        .entry(rtp.get_ssrc())
+                        .or_insert_with(|| SsrcState::new(&rtp, crypto_mode, &self.config));
 
-                // Only do this on RTP, rather than RTCP -- this pins decoder state liveness
-                // to *speech* rather than just presence.
-                entry.refresh_timer(self.config.decode_state_timeout.into());
+                    // Only do this on RTP, rather than RTCP -- this pins decoder state liveness
+                    // to *speech* rather than just presence.
+                    entry.refresh_timer(self.config.decode_state_timeout.into());
 
-                let store_pkt = StoredPacket { packet, decrypted };
-                entry.store_packet(store_pkt, &self.config);
+                    let store_pkt = StoredPacket { packet, decrypted };
+                    entry.store_packet(store_pkt, &self.config);
+                }
+                #[cfg(feature = "lcr-raw-receive")]
+                let _ = (packet, decrypted);
 
                 if immediate_outcome == LcrImmediateDispatchOutcome::NotInstalled {
                     drop(interconnect.events.send(EventMessage::FireCoreEvent(
@@ -346,6 +415,7 @@ pub(crate) async fn runner(
     let mut state = UdpRx {
         cipher,
         crypto_mode,
+        #[cfg(not(feature = "lcr-raw-receive"))]
         decoder_map: HashMap::new(),
         config,
         rx,

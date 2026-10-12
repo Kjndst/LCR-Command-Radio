@@ -32,7 +32,7 @@ pub enum EventContext<'a> {
     /// packet to allow SSRC/UserID matching.
     SpeakingStateUpdate(Speaking),
 
-    #[cfg(feature = "receive")]
+    #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
     /// Reordered and decoded audio packets, received every 20ms.
     VoiceTick(VoiceTick),
 
@@ -60,7 +60,7 @@ pub enum EventContext<'a> {
 #[derive(Debug)]
 pub enum CoreContext {
     SpeakingStateUpdate(Speaking),
-    #[cfg(feature = "receive")]
+    #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
     VoiceTick(VoiceTick),
     #[cfg(feature = "receive")]
     RtpPacket(InternalRtpPacket),
@@ -76,7 +76,7 @@ impl<'a> CoreContext {
     pub(crate) fn to_user_context(&'a self) -> EventContext<'a> {
         match self {
             Self::SpeakingStateUpdate(evt) => EventContext::SpeakingStateUpdate(*evt),
-            #[cfg(feature = "receive")]
+            #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
             Self::VoiceTick(evt) => EventContext::VoiceTick(evt.clone()),
             #[cfg(feature = "receive")]
             Self::RtpPacket(evt) => EventContext::RtpPacket(RtpData::from(evt)),
@@ -98,7 +98,7 @@ impl EventContext<'_> {
     pub fn to_core_event(&self) -> Option<CoreEvent> {
         match self {
             Self::SpeakingStateUpdate(_) => Some(CoreEvent::SpeakingStateUpdate),
-            #[cfg(feature = "receive")]
+            #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
             Self::VoiceTick(_) => Some(CoreEvent::VoiceTick),
             #[cfg(feature = "receive")]
             Self::RtpPacket(_) => Some(CoreEvent::RtpPacket),

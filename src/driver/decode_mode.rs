@@ -76,6 +76,7 @@ pub enum Channels {
 }
 
 impl Channels {
+    #[cfg(not(feature = "lcr-raw-receive"))]
     pub(crate) fn channels(self) -> usize {
         match self {
             Channels::Mono => 1,

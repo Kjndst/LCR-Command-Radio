@@ -332,9 +332,9 @@ impl Mixer {
                 }
 
                 self.config = Arc::new(
-                    #[cfg(feature = "receive")]
+                    #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
                     new_config.clone(),
-                    #[cfg(not(feature = "receive"))]
+                    #[cfg(any(not(feature = "receive"), feature = "lcr-raw-receive"))]
                     new_config,
                 );
 
@@ -343,7 +343,7 @@ impl Mixer {
                     self.tracks.reserve(preallocated_tracks - self.tracks.len());
                 }
 
-                #[cfg(feature = "receive")]
+                #[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
                 if let Some(conn) = &self.conn_active {
                     if let crate::driver::DecodeMode::Decode(decode_config) = new_config.decode_mode
                     {

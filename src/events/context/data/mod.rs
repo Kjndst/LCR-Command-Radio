@@ -7,7 +7,7 @@ mod disconnect;
 mod rtcp;
 #[cfg(feature = "receive")]
 mod rtp;
-#[cfg(feature = "receive")]
+#[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
 mod voice;
 
 #[cfg(feature = "receive")]
@@ -15,4 +15,6 @@ use bytes::Bytes;
 
 pub use self::{connect::*, disconnect::*};
 #[cfg(feature = "receive")]
-pub use self::{rtcp::*, rtp::*, voice::*};
+pub use self::{rtcp::*, rtp::*};
+#[cfg(all(feature = "receive", not(feature = "lcr-raw-receive")))]
+pub use self::voice::*;
