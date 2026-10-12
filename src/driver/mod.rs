@@ -13,6 +13,7 @@ pub mod bench_internals;
 
 pub(crate) mod connection;
 mod crypto;
+mod lcr_immediate;
 #[cfg(feature = "receive")]
 mod decode_mode;
 #[cfg(feature = "lcr-raw-opus-source")]
@@ -29,6 +30,8 @@ mod test_impls;
 use connection::error::{Error, Result};
 pub use crypto::CryptoMode;
 pub(crate) use crypto::CryptoState;
+pub(crate) use lcr_immediate::{LcrImmediateDispatchOutcome, LcrImmediateDispatcher};
+pub use lcr_immediate::{LcrImmediateEvent, LcrImmediateEventHandler};
 #[cfg(feature = "receive")]
 pub use decode_mode::*;
 #[cfg(feature = "lcr-raw-opus-source")]
@@ -439,6 +442,27 @@ impl Driver {
         self.try_send(CoreMessage::AddPersistentCoreEvent(
             PersistentCoreEvent::new(event, action),
         ))
+    }
+
+    /// Installs one synchronous LCR immediate-event handler on this exact Driver core.
+    #[doc(hidden)]
+    #[instrument(skip(self, handler))]
+    pub fn lcr_try_set_immediate_event_handler<H: LcrImmediateEventHandler + 'static>(
+        &mut self,
+        handler: H,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::SetLcrImmediateEventHandler(Some(
+            std::sync::Arc::new(handler),
+        )))
+    }
+
+    /// Clears the synchronous LCR immediate-event handler on this exact Driver core.
+    #[doc(hidden)]
+    #[instrument(skip(self))]
+    pub fn lcr_try_clear_immediate_event_handler(
+        &mut self,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::SetLcrImmediateEventHandler(None))
     }
 
     /// Removes all global event handlers from an audio context.

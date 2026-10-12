@@ -11,6 +11,7 @@ pub(crate) mod ws;
 
 use super::connection::{error::Error as ConnectionError, Connection};
 use crate::{
+    driver::{LcrImmediateDispatcher, LcrImmediateEvent},
     events::{
         context_data::{DisconnectKind, DisconnectReason},
         internal_data::{InternalConnect, InternalDisconnect},
@@ -37,6 +38,23 @@ pub(crate) fn start(
     })
 }
 
+fn fire_lcr_driver_disconnect(interconnect: &Interconnect, event: InternalDisconnect) {
+    let _ = interconnect.dispatch_lcr_immediate(LcrImmediateEvent::DriverDisconnect {
+        kind: event.kind,
+        reason: event.reason,
+    });
+    drop(interconnect.events.send(EventMessage::FireCoreEvent(
+        CoreContext::DriverDisconnect(event),
+    )));
+}
+
+fn fire_lcr_driver_reconnect(interconnect: &Interconnect, event: InternalConnect) {
+    let _ = interconnect.dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
+    drop(interconnect.events.send(EventMessage::FireCoreEvent(
+        CoreContext::DriverReconnect(event),
+    )));
+}
+
 fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {
     let (evt_tx, evt_rx) = flume::unbounded();
     let (mix_tx, mix_rx) = flume::unbounded();
@@ -51,6 +69,7 @@ fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {
         core,
         events: evt_tx,
         mixer: mix_tx,
+        lcr_immediate: LcrImmediateDispatcher::default(),
     };
 
     config.get_scheduler().new_mixer(config, ic.clone(), mix_rx);
@@ -138,13 +157,14 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                 drop(interconnect.mixer.send(MixerMessage::RebuildEncoder));
 
                 if let Some(conn) = last_conn {
-                    drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                        CoreContext::DriverDisconnect(InternalDisconnect {
+                    fire_lcr_driver_disconnect(
+                        &interconnect,
+                        InternalDisconnect {
                             kind: DisconnectKind::Runtime,
                             reason: Some(DisconnectReason::Requested),
                             info: conn.info.clone(),
-                        }),
-                    )));
+                        },
+                    );
                 }
             },
             CoreMessage::SignalWsClosure(ws_idx, ws_info, mut reason) => {
@@ -164,13 +184,14 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                 // Conn may have been unset earlier (i.e., in a deliberate disconnect).
                 // If so, do not repropagate/repeat the disconnect event.
                 if conn.is_some() {
-                    drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                        CoreContext::DriverDisconnect(InternalDisconnect {
+                    fire_lcr_driver_disconnect(
+                        &interconnect,
+                        InternalDisconnect {
                             kind: DisconnectKind::Runtime,
                             reason,
                             info: ws_info,
-                        }),
-                    )));
+                        },
+                    );
                 }
             },
             CoreMessage::SetTrack(s) => {
@@ -195,6 +216,9 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             },
             CoreMessage::AddEvent(evt) => {
                 drop(interconnect.events.send(EventMessage::AddGlobalEvent(evt)));
+            },
+            CoreMessage::SetLcrImmediateEventHandler(handler) => {
+                interconnect.lcr_immediate.set_handler(handler);
             },
             CoreMessage::AddPersistentCoreEvent(evt) => {
                 let event_data = evt.event_data();
@@ -341,6 +365,8 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                             );
                         }
                     } else if let Some(ref connection) = &connection {
+                        let _ = interconnect
+                            .dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
                         let event_send =
                             interconnect
                                 .events
@@ -453,12 +479,13 @@ impl ConnectionRetryData {
                         )));
                     },
                     ConnectionFlavour::Reconnect => {
-                        drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                            CoreContext::DriverReconnect(InternalConnect {
+                        fire_lcr_driver_reconnect(
+                            interconnect,
+                            InternalConnect {
                                 info: connection.info.clone(),
                                 ssrc: connection.ssrc,
-                            }),
-                        )));
+                            },
+                        );
                     },
                 }
 
@@ -495,22 +522,24 @@ impl ConnectionRetryData {
                             // See above.
                             drop(tx.send(Err(why)));
 
-                            drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                                CoreContext::DriverDisconnect(InternalDisconnect {
+                            fire_lcr_driver_disconnect(
+                                interconnect,
+                                InternalDisconnect {
                                     kind: DisconnectKind::Connect,
                                     reason,
                                     info: self.info,
-                                }),
-                            )));
+                                },
+                            );
                         },
                         ConnectionFlavour::Reconnect => {
-                            drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                                CoreContext::DriverDisconnect(InternalDisconnect {
+                            fire_lcr_driver_disconnect(
+                                interconnect,
+                                InternalDisconnect {
                                     kind: DisconnectKind::Reconnect,
                                     reason,
                                     info: self.info,
-                                }),
-                            )));
+                                },
+                            );
                         },
                     }
                 }

@@ -53,6 +53,7 @@ impl Mixer {
             core: core_tx,
             events: event_tx,
             mixer: mix_tx,
+            lcr_immediate: LcrImmediateDispatcher::default(),
         };
 
         // Scheduler must be created from a Tokio context...

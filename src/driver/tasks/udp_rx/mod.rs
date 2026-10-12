@@ -5,11 +5,11 @@ mod ssrc_state;
 use self::{decode_sizes::*, playout_buffer::*, ssrc_state::*};
 
 use super::message::*;
-use crate::driver::{CryptoMode, DecodeMode};
+use crate::driver::{CryptoMode, DecodeMode, LcrImmediateDispatchOutcome, LcrImmediateEvent};
 use crate::{
     constants::*,
     driver::crypto::Cipher,
-    events::{context_data::VoiceTick, internal_data::*, CoreContext},
+    events::{context_data::{RtpData, VoiceTick}, internal_data::*, CoreContext},
     Config,
 };
 use bytes::BytesMut;
@@ -252,7 +252,6 @@ impl UdpRx {
                     }
                 }
 
-                let rtp = rtp.to_immutable();
                 let (rtp_body_start, rtp_body_tail, decrypted) = packet_data.unwrap_or_else(|| {
                     (
                         crypto_mode.payload_prefix_len(),
@@ -260,6 +259,19 @@ impl UdpRx {
                         false,
                     )
                 });
+
+                let packet = packet.freeze();
+                let rtp = RtpPacket::new(&packet)
+                    .expect("validated RTP packet remains parseable after decryption");
+                let immediate_rtp = InternalRtpPacket {
+                    packet: packet.clone(),
+                    payload_offset: rtp_body_start,
+                    payload_end_pad: rtp_body_tail,
+                    dave_authenticated_user_id,
+                };
+                let immediate_outcome = interconnect.dispatch_lcr_immediate(
+                    LcrImmediateEvent::Rtp(RtpData::from(&immediate_rtp)),
+                );
 
                 let entry = self
                     .decoder_map
@@ -270,21 +282,14 @@ impl UdpRx {
                 // to *speech* rather than just presence.
                 entry.refresh_timer(self.config.decode_state_timeout.into());
 
-                let store_pkt = StoredPacket {
-                    packet: packet.freeze(),
-                    decrypted,
-                };
-                let packet = store_pkt.packet.clone();
+                let store_pkt = StoredPacket { packet, decrypted };
                 entry.store_packet(store_pkt, &self.config);
 
-                drop(interconnect.events.send(EventMessage::FireCoreEvent(
-                    CoreContext::RtpPacket(InternalRtpPacket {
-                        packet,
-                        payload_offset: rtp_body_start,
-                        payload_end_pad: rtp_body_tail,
-                        dave_authenticated_user_id,
-                    }),
-                )));
+                if immediate_outcome == LcrImmediateDispatchOutcome::NotInstalled {
+                    drop(interconnect.events.send(EventMessage::FireCoreEvent(
+                        CoreContext::RtpPacket(immediate_rtp),
+                    )));
+                }
             },
             DemuxedMut::Rtcp(mut rtcp) => {
                 let packet_data = if self.config.decode_mode.should_decrypt() {

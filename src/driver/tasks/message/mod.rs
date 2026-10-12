@@ -12,6 +12,7 @@ mod ws;
 pub use self::udp_rx::*;
 pub use self::{core::*, disposal::*, events::*, mixer::*, ws::*};
 
+use crate::driver::{LcrImmediateDispatchOutcome, LcrImmediateDispatcher, LcrImmediateEvent};
 use flume::Sender;
 use tokio::spawn;
 use tracing::trace;
@@ -21,9 +22,21 @@ pub struct Interconnect {
     pub core: Sender<CoreMessage>,
     pub events: Sender<EventMessage>,
     pub mixer: Sender<MixerMessage>,
+    pub(crate) lcr_immediate: LcrImmediateDispatcher,
 }
 
 impl Interconnect {
+    pub(crate) fn dispatch_lcr_immediate(
+        &self,
+        event: LcrImmediateEvent,
+    ) -> LcrImmediateDispatchOutcome {
+        let outcome = self.lcr_immediate.dispatch(event);
+        if outcome == LcrImmediateDispatchOutcome::Failed {
+            drop(self.core.send(CoreMessage::Poison));
+        }
+        outcome
+    }
+
     pub fn poison(&self) {
         drop(self.events.send(EventMessage::Poison));
     }

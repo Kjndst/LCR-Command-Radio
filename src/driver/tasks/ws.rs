@@ -1,6 +1,6 @@
 use super::message::*;
 use crate::{
-    driver::tasks::error::DaveReinitError,
+    driver::{tasks::error::DaveReinitError, LcrImmediateEvent},
     events::CoreContext,
     model::{
         payload::{Heartbeat, Speaking},
@@ -307,6 +307,12 @@ impl AuxNetwork {
                     self.ssrc_signalling.ssrc_user_map.insert(ev.ssrc, *user_id);
                 }
 
+                let _ = interconnect.dispatch_lcr_immediate(LcrImmediateEvent::Speaking {
+                    ssrc: ev.ssrc,
+                    user_id: ev.user_id.as_ref().map(|user_id| user_id.0),
+                    microphone: ev.speaking.microphone(),
+                });
+
                 drop(interconnect.events.send(EventMessage::FireCoreEvent(
                     CoreContext::SpeakingStateUpdate(ev),
                 )));
@@ -315,6 +321,12 @@ impl AuxNetwork {
                 debug!("Received discontinued ClientConnect: {:?}", ev);
             },
             GatewayEvent::ClientDisconnect(ev) => {
+                let _ = interconnect.dispatch_lcr_immediate(
+                    LcrImmediateEvent::ClientDisconnect {
+                        user_id: ev.user_id.0,
+                    },
+                );
+
                 #[cfg(feature = "receive")]
                 {
                     self.ssrc_signalling.disconnected_users.insert(ev.user_id);
