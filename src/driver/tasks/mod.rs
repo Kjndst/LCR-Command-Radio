@@ -11,7 +11,7 @@ pub(crate) mod ws;
 
 use super::connection::{error::Error as ConnectionError, Connection};
 use crate::{
-    driver::{LcrImmediateDispatcher, LcrImmediateEvent},
+    driver::{LcrCausalDispatcher, LcrCausalEvent, LcrImmediateDispatcher, LcrImmediateEvent},
     events::{
         context_data::{DisconnectKind, DisconnectReason},
         internal_data::{InternalConnect, InternalDisconnect},
@@ -43,6 +43,10 @@ fn fire_lcr_driver_disconnect(interconnect: &Interconnect, event: InternalDiscon
         kind: event.kind,
         reason: event.reason,
     });
+    let _ = interconnect.dispatch_lcr_causal(LcrCausalEvent::DriverDisconnect {
+        kind: event.kind,
+        reason: event.reason,
+    });
     drop(interconnect.events.send(EventMessage::FireCoreEvent(
         CoreContext::DriverDisconnect(event),
     )));
@@ -50,6 +54,7 @@ fn fire_lcr_driver_disconnect(interconnect: &Interconnect, event: InternalDiscon
 
 fn fire_lcr_driver_reconnect(interconnect: &Interconnect, event: InternalConnect) {
     let _ = interconnect.dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
+    let _ = interconnect.dispatch_lcr_causal(LcrCausalEvent::DriverReconnect);
     drop(interconnect.events.send(EventMessage::FireCoreEvent(
         CoreContext::DriverReconnect(event),
     )));
@@ -58,6 +63,12 @@ fn fire_lcr_driver_reconnect(interconnect: &Interconnect, event: InternalConnect
 fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {
     let (evt_tx, evt_rx) = flume::unbounded();
     let (mix_tx, mix_rx) = flume::unbounded();
+    let (lcr_causal, lcr_causal_rx) = LcrCausalDispatcher::new();
+
+    let causal_core = core.clone();
+    spawn(async move {
+        super::lcr_causal::runner(lcr_causal_rx, causal_core).await;
+    });
 
     spawn(async move {
         trace!("Event processor started.");
@@ -69,6 +80,7 @@ fn start_internals(core: Sender<CoreMessage>, config: &Config) -> Interconnect {
         core,
         events: evt_tx,
         mixer: mix_tx,
+        lcr_causal,
         lcr_immediate: LcrImmediateDispatcher::default(),
     };
 
@@ -216,6 +228,11 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             },
             CoreMessage::AddEvent(evt) => {
                 drop(interconnect.events.send(EventMessage::AddGlobalEvent(evt)));
+            },
+            CoreMessage::SetLcrCausalEventHandler(handler) => {
+                if !interconnect.lcr_causal.set_handler(handler) {
+                    break;
+                }
             },
             CoreMessage::SetLcrImmediateEventHandler(handler) => {
                 interconnect.lcr_immediate.set_handler(handler);
@@ -367,6 +384,8 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                     } else if let Some(ref connection) = &connection {
                         let _ = interconnect
                             .dispatch_lcr_immediate(LcrImmediateEvent::DriverReconnect);
+                        let _ = interconnect
+                            .dispatch_lcr_causal(LcrCausalEvent::DriverReconnect);
                         let event_send =
                             interconnect
                                 .events

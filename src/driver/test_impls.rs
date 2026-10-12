@@ -53,6 +53,7 @@ impl Mixer {
             core: core_tx,
             events: event_tx,
             mixer: mix_tx,
+            lcr_causal: LcrCausalDispatcher::new().0,
             lcr_immediate: LcrImmediateDispatcher::default(),
         };
 

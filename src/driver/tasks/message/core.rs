@@ -4,7 +4,10 @@
 use crate::driver::raw_opus::RawOpusContext;
 
 use crate::{
-    driver::{connection::error::Error, Bitrate, Config, LcrImmediateEventHandler},
+    driver::{
+        connection::error::Error, Bitrate, Config, LcrCausalEventHandler,
+        LcrImmediateEventHandler,
+    },
     events::{
         context_data::DisconnectReason,
         CoreEvent,
@@ -64,6 +67,7 @@ pub enum CoreMessage {
     SetRawOpusSource(Option<Box<RawOpusContext>>),
     SetBitrate(Bitrate),
     AddEvent(EventData),
+    SetLcrCausalEventHandler(Option<Arc<dyn LcrCausalEventHandler>>),
     SetLcrImmediateEventHandler(Option<Arc<dyn LcrImmediateEventHandler>>),
     AddPersistentCoreEvent(PersistentCoreEvent),
     RemoveGlobalEvents,

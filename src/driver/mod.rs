@@ -13,6 +13,7 @@ pub mod bench_internals;
 
 pub(crate) mod connection;
 mod crypto;
+mod lcr_causal;
 mod lcr_immediate;
 #[cfg(feature = "receive")]
 mod decode_mode;
@@ -30,6 +31,8 @@ mod test_impls;
 use connection::error::{Error, Result};
 pub use crypto::CryptoMode;
 pub(crate) use crypto::CryptoState;
+pub(crate) use lcr_causal::{LcrCausalDispatchOutcome, LcrCausalDispatcher};
+pub use lcr_causal::{LcrCausalEvent, LcrCausalEventHandler};
 pub(crate) use lcr_immediate::{LcrImmediateDispatchOutcome, LcrImmediateDispatcher};
 pub use lcr_immediate::{LcrImmediateEvent, LcrImmediateEventHandler};
 #[cfg(feature = "receive")]
@@ -444,6 +447,27 @@ impl Driver {
         ))
     }
 
+    /// Installs one asynchronous LCR causal-event handler on this exact Driver core.
+    #[doc(hidden)]
+    #[instrument(skip(self, handler))]
+    pub fn lcr_try_set_causal_event_handler<H: LcrCausalEventHandler + 'static>(
+        &mut self,
+        handler: H,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::SetLcrCausalEventHandler(Some(
+            std::sync::Arc::new(handler),
+        )))
+    }
+
+    /// Clears the asynchronous LCR causal-event handler on this exact Driver core.
+    #[doc(hidden)]
+    #[instrument(skip(self))]
+    pub fn lcr_try_clear_causal_event_handler(
+        &mut self,
+    ) -> std::result::Result<(), LcrCoreUnavailable> {
+        self.try_send(CoreMessage::SetLcrCausalEventHandler(None))
+    }
+
     /// Installs one synchronous LCR immediate-event handler on this exact Driver core.
     #[doc(hidden)]
     #[instrument(skip(self, handler))]
@@ -736,6 +760,15 @@ async fn lcr_core_task_completion_is_take_once_and_observes_return() {
 }
 
 #[cfg(test)]
+struct LcrCriticalNoopCausalHandler;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl LcrCausalEventHandler for LcrCriticalNoopCausalHandler {
+    async fn handle(&self, _event: LcrCausalEvent) {}
+}
+
+#[cfg(test)]
 struct LcrCriticalNoopEventHandler;
 
 #[cfg(test)]
@@ -818,6 +851,22 @@ fn lcr_critical_raw_install_rejects_dead_core() {
 
 #[cfg(test)]
 #[test]
+fn lcr_critical_causal_handler_rejects_dead_core() {
+    let mut driver = lcr_critical_dead_core_driver();
+
+    assert_eq!(
+        driver.lcr_try_set_causal_event_handler(LcrCriticalNoopCausalHandler),
+        Err(LcrCoreUnavailable)
+    );
+    assert_eq!(
+        driver.lcr_try_clear_causal_event_handler(),
+        Err(LcrCoreUnavailable)
+    );
+    assert!(driver.core_task.is_none());
+}
+
+#[cfg(test)]
+#[test]
 fn lcr_critical_persistent_event_rejects_dead_core() {
     let mut driver = lcr_critical_dead_core_driver();
 
@@ -857,6 +906,12 @@ async fn lcr_critical_raw_install_accepts_live_core() {
 #[tokio::test]
 async fn lcr_critical_event_seams_accept_live_core() {
     let mut driver = Driver::new(Config::default());
+
+    assert_eq!(
+        driver.lcr_try_set_causal_event_handler(LcrCriticalNoopCausalHandler),
+        Ok(())
+    );
+    assert_eq!(driver.lcr_try_clear_causal_event_handler(), Ok(()));
 
     assert_eq!(
         driver.lcr_try_add_persistent_core_event(
