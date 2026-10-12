@@ -139,10 +139,9 @@ impl From<ConnectionError> for JoinError {
 pub type JoinResult<T> = Result<T, JoinError>;
 
 #[cfg(feature = "driver")]
-pub use crate::{
-    driver::{
-        connection::error::{Error as ConnectionError, Result as ConnectionResult},
-        SchedulerError,
-    },
-    tracks::{ControlError, PlayError, TrackResult},
+pub use crate::driver::{
+    connection::error::{Error as ConnectionError, Result as ConnectionResult},
+    SchedulerError,
 };
+#[cfg(feature = "driver-media")]
+pub use crate::tracks::{ControlError, PlayError, TrackResult};

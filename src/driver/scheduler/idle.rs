@@ -4,8 +4,6 @@ use nohash_hasher::{BuildNoHashHasher, IntMap};
 use tokio::time::{Instant as TokInstant, Interval};
 use tracing::info;
 
-use crate::constants::*;
-
 use super::*;
 
 const THREAD_CULL_TIMER: Duration = Duration::from_secs(60);
@@ -218,7 +216,7 @@ impl Idle {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 mod test {
     use super::*;
     use crate::{
@@ -334,9 +332,10 @@ mod test {
     }
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 mod lcr_raw_opus_scheduler_tests {
     use super::*;
+    use crate::constants::VOICE_PACKET_MAX;
     use crate::driver::{
         raw_opus::RawOpusContext,
         tasks::{

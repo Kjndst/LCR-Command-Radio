@@ -12,7 +12,7 @@ use crate::{
     driver::tasks::{error::Error as DriverError, mixer::Mixer},
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 use crate::driver::test_config::TickStyle;
 
 use super::*;
@@ -77,7 +77,7 @@ impl Worker {
         self.known_empty_since = None;
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "driver-media"))]
     #[inline]
     pub fn is_busy(&mut self) -> bool {
         self.known_empty_since.is_none()
@@ -281,7 +281,7 @@ impl Live {
                     let res = mixer.send_packet(&packet[..*packet_len]);
                     rebuild_if_err(mixer, res, cull_marker);
                 }
-                #[cfg(test)]
+                #[cfg(all(test, feature = "driver-media"))]
                 if *packet_len == 0 {
                     mixer.test_signal_empty_tick();
                 }
@@ -307,9 +307,12 @@ impl Live {
             }
 
             let phase = catch_unwind(AssertUnwindSafe(|| {
+                #[cfg(any(not(feature = "lcr-raw-media"), feature = "driver-media"))]
                 let res = mixer
                     .audio_commands_events()
                     .and_then(|()| mixer.check_and_send_keepalive(self.start_of_work));
+                #[cfg(all(feature = "lcr-raw-media", not(feature = "driver-media")))]
+                let res = mixer.check_and_send_keepalive(self.start_of_work);
                 rebuild_if_err(mixer, res, cull_marker);
             }));
 
@@ -322,7 +325,7 @@ impl Live {
         true
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "driver-media"))]
     fn _march_deadline(&mut self) {
         // For testing, assume all will have same tick style.
         // Only count 'remaining loops' on one of the nodes.
@@ -354,7 +357,7 @@ impl Live {
         }
     }
 
-    #[cfg(not(test))]
+    #[cfg(any(not(test), not(feature = "driver-media")))]
     #[inline(always)]
     #[allow(clippy::inline_always)]
     fn _march_deadline(&mut self) {
@@ -461,9 +464,9 @@ impl Live {
     pub fn demote_and_remove_mixers(&mut self) {
         let mut i = 0;
         while i < self.tasks.len() {
-            #[cfg(test)]
+            #[cfg(all(test, feature = "driver-media"))]
             let force_conn = self.tasks[i].config.override_connection.is_some();
-            #[cfg(not(test))]
+            #[cfg(any(not(test), not(feature = "driver-media")))]
             let force_conn = false;
 
             // Benchmarking suggests that these asserts remove some bounds checks for us.
@@ -749,7 +752,93 @@ fn contain_panicked_mixer(mixer: &mut Box<Mixer>, cull_marker: &mut bool) {
         .send(crate::driver::tasks::message::CoreMessage::Poison);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "lcr-raw-media", not(feature = "driver-media")))]
+mod lcr_raw_media_containment_tests {
+    use super::*;
+    use crate::driver::{RawOpusRead, RawOpusSource};
+    use std::{
+        num::NonZeroUsize,
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+    };
+
+    struct PanickingSource {
+        armed: Arc<AtomicBool>,
+        pulls: Arc<AtomicUsize>,
+    }
+
+    impl RawOpusSource for PanickingSource {
+        fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+            self.pulls.fetch_add(1, Ordering::SeqCst);
+            if self.armed.load(Ordering::SeqCst) {
+                panic!("deterministic raw-media mixer panic");
+            }
+            dst[..4].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+            RawOpusRead::Frame(4)
+        }
+    }
+
+    struct HealthySource(Arc<AtomicUsize>);
+
+    impl RawOpusSource for HealthySource {
+        fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            dst[..4].copy_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd]);
+            RawOpusRead::Frame(4)
+        }
+    }
+
+    #[tokio::test]
+    async fn lcr_raw_media_panicking_mixer_is_contained_to_one_shared_worker_peer() {
+        let armed = Arc::new(AtomicBool::new(false));
+        let bad_pulls = Arc::new(AtomicUsize::new(0));
+        let good_pulls = Arc::new(AtomicUsize::new(0));
+        let (bad, _bad_handle, bad_core_rx) = crate::driver::tasks::mixer::lcr_test_mixer_with_raw_source(
+            PanickingSource {
+                armed: Arc::clone(&armed),
+                pulls: Arc::clone(&bad_pulls),
+            },
+        );
+        let (good, _good_handle, _good_core_rx) = crate::driver::tasks::mixer::lcr_test_mixer_with_raw_source(
+            HealthySource(Arc::clone(&good_pulls)),
+        );
+
+        let config = Config {
+            strategy: Mode::MaxPerThread(NonZeroUsize::new(2).unwrap()),
+            move_expensive_tasks: false,
+        };
+        let global_stats = Arc::new(StatBlock::default());
+        let stats = Arc::new(LiveStatBlock::default());
+        let (_incoming_tx, incoming_rx) = flume::unbounded();
+        let (sched_tx, _sched_rx) = flume::unbounded();
+        let mut live = Live::new(
+            WorkerId::new(),
+            config,
+            global_stats,
+            stats,
+            incoming_rx,
+            sched_tx,
+        );
+        let mut ids = TaskId::new();
+        live.add_task_direct(bad, ids.incr());
+        live.add_task_direct(good, ids.incr());
+
+        armed.store(true, Ordering::SeqCst);
+        assert!(live.run_once());
+
+        assert_eq!(bad_pulls.load(Ordering::SeqCst), 1);
+        assert_eq!(good_pulls.load(Ordering::SeqCst), 1);
+        assert!(live.to_cull[0], "panicking mixer must be culled");
+        assert!(!live.to_cull[1], "healthy peer must remain live");
+        assert!(matches!(
+            bad_core_rx.try_recv(),
+            Ok(crate::driver::tasks::message::CoreMessage::Poison)
+        ));
+    }
+}
+#[cfg(all(test, feature = "driver-media"))]
 mod test {
     use super::*;
     use crate::driver::test_impls::*;

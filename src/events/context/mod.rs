@@ -1,13 +1,16 @@
 pub mod data;
 pub(crate) mod internal_data;
 
+#[cfg(feature = "driver-media")]
 use super::*;
-use crate::{
-    model::payload::{ClientDisconnect, Speaking},
-    tracks::{TrackHandle, TrackState},
-};
+#[cfg(feature = "driver-media")]
+use crate::model::payload::{ClientDisconnect, Speaking};
+#[cfg(feature = "driver-media")]
+use crate::tracks::{TrackHandle, TrackState};
 pub use data as context_data;
+#[cfg(feature = "driver-media")]
 use data::*;
+#[cfg(feature = "driver-media")]
 use internal_data::*;
 
 /// Information about which tracks or data fired an event.
@@ -17,6 +20,7 @@ use internal_data::*;
 ///
 /// [`Track`]: crate::tracks::Track
 /// [`Driver::add_global_event`]: crate::driver::Driver::add_global_event
+#[cfg(feature = "driver-media")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EventContext<'a> {
@@ -57,6 +61,7 @@ pub enum EventContext<'a> {
     DriverDisconnect(DisconnectData<'a>),
 }
 
+#[cfg(feature = "driver-media")]
 #[derive(Debug)]
 pub enum CoreContext {
     SpeakingStateUpdate(Speaking),
@@ -72,7 +77,7 @@ pub enum CoreContext {
     DriverDisconnect(InternalDisconnect),
 }
 
-#[cfg(not(feature = "lcr-raw-events"))]
+#[cfg(all(feature = "driver-media", not(feature = "lcr-raw-events")))]
 impl<'a> CoreContext {
     pub(crate) fn to_user_context(&'a self) -> EventContext<'a> {
         match self {
@@ -92,6 +97,7 @@ impl<'a> CoreContext {
     }
 }
 
+#[cfg(feature = "driver-media")]
 impl EventContext<'_> {
     /// Retreive the event class for an event (i.e., when matching)
     /// an event against the registered listeners.

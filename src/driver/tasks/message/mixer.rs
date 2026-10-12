@@ -5,17 +5,19 @@ use crate::driver::raw_opus::RawOpusContext;
 
 #[cfg(feature = "receive")]
 use super::UdpRxMessage;
-use super::{Interconnect, TrackContext, WsMessage};
+use super::{Interconnect, WsMessage};
+#[cfg(feature = "driver-media")]
+use super::TrackContext;
 
-use crate::{
-    driver::{crypto::Cipher, Bitrate, Config, CryptoState},
-    input::{AudioStreamError, Compose, Parsed},
-};
+use crate::driver::{crypto::Cipher, Bitrate, Config, CryptoState};
+#[cfg(feature = "driver-media")]
+use crate::input::{AudioStreamError, Compose, Parsed};
 use flume::Sender;
 use std::{
     net::UdpSocket,
     sync::{atomic::AtomicU16, Arc, RwLock},
 };
+#[cfg(feature = "driver-media")]
 use symphonia_core::{errors::Error as SymphoniaError, formats::SeekedTo};
 
 pub struct MixerConnection {
@@ -29,7 +31,9 @@ pub struct MixerConnection {
 }
 
 pub enum MixerMessage {
+    #[cfg(feature = "driver-media")]
     AddTrack(Box<TrackContext>),
+    #[cfg(feature = "driver-media")]
     SetTrack(Option<Box<TrackContext>>),
     #[cfg(feature = "lcr-raw-opus-source")]
     SetRawOpusSource(Option<Box<RawOpusContext>>),
@@ -52,7 +56,9 @@ impl MixerMessage {
     #[must_use]
     pub fn is_mixer_maybe_live(&self) -> bool {
         match self {
-            Self::AddTrack(_) | Self::SetTrack(Some(_)) | Self::SetConn(..) => true,
+            #[cfg(feature = "driver-media")]
+            Self::AddTrack(_) | Self::SetTrack(Some(_)) => true,
+            Self::SetConn(..) => true,
             #[cfg(feature = "lcr-raw-opus-source")]
             Self::SetRawOpusSource(Some(_)) => true,
             _ => false,
@@ -60,6 +66,7 @@ impl MixerMessage {
     }
 }
 
+#[cfg(feature = "driver-media")]
 pub enum MixerInputResultMessage {
     CreateErr(Arc<AudioStreamError>),
     ParseErr(Arc<SymphoniaError>),

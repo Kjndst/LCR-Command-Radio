@@ -1,8 +1,12 @@
 #![allow(missing_docs)]
 
 mod core;
+#[cfg(feature = "driver-media")]
 mod disposal;
+#[cfg(feature = "driver-media")]
 mod events;
+#[cfg(not(feature = "driver-media"))]
+mod raw_events;
 mod mixer;
 #[cfg(feature = "receive")]
 mod udp_rx;
@@ -10,7 +14,11 @@ mod ws;
 
 #[cfg(feature = "receive")]
 pub use self::udp_rx::*;
-pub use self::{core::*, disposal::*, events::*, mixer::*, ws::*};
+pub use self::{core::*, mixer::*, ws::*};
+#[cfg(feature = "driver-media")]
+pub use self::{disposal::*, events::*};
+#[cfg(not(feature = "driver-media"))]
+pub use self::raw_events::*;
 
 use crate::driver::{
     LcrCausalDispatchOutcome, LcrCausalDispatcher, LcrCausalEvent,
@@ -52,7 +60,7 @@ impl Interconnect {
     }
 
     pub fn poison(&self) {
-        drop(self.events.send(EventMessage::Poison));
+        let _ = self.events.send(EventMessage::Poison);
     }
 
     pub fn poison_all(&self) {

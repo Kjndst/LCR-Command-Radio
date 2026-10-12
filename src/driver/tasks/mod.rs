@@ -1,10 +1,15 @@
 #![allow(missing_docs)]
 
+#[cfg(feature = "driver-media")]
 pub(crate) mod disposal;
 pub mod error;
 #[cfg(not(feature = "lcr-raw-events"))]
 mod events;
 pub mod message;
+#[cfg(any(not(feature = "lcr-raw-media"), feature = "driver-media"))]
+pub mod mixer;
+#[cfg(all(feature = "lcr-raw-media", not(feature = "driver-media")))]
+#[path = "raw_mixer.rs"]
 pub mod mixer;
 #[cfg(feature = "receive")]
 pub(crate) mod udp_rx;
@@ -21,7 +26,7 @@ use crate::{
     ConnectionInfo,
     FloatDuration,
 };
-#[cfg(any(test, not(feature = "lcr-raw-events")))]
+#[cfg(all(feature = "driver-media", any(test, not(feature = "lcr-raw-events"))))]
 use crate::events::CoreContext;
 use flume::{Receiver, Sender};
 use message::*;
@@ -117,7 +122,10 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
     let mut interconnect = start_internals(tx, &config);
     let mut retrying = None;
     let mut attempt_idx = 0;
+    #[cfg(feature = "driver-media")]
     let mut persistent_core_events = Vec::new();
+    #[cfg(not(feature = "driver-media"))]
+    let persistent_core_events = Vec::<PersistentCoreEvent>::new();
 
     #[cfg(feature = "lcr-controlled-fault")]
     let mut lcr_reconnect_phase_seq = 0_u64;
@@ -228,9 +236,11 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                     );
                 }
             },
+            #[cfg(feature = "driver-media")]
             CoreMessage::SetTrack(s) => {
                 drop(interconnect.mixer.send(MixerMessage::SetTrack(s)));
             },
+            #[cfg(feature = "driver-media")]
             CoreMessage::AddTrack(s) => {
                 drop(interconnect.mixer.send(MixerMessage::AddTrack(s)));
             },
@@ -248,6 +258,7 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
 
                 drop(interconnect.mixer.send(MixerMessage::SetConfig(new_config)));
             },
+            #[cfg(feature = "driver-media")]
             CoreMessage::AddEvent(evt) => {
                 drop(interconnect.events.send(EventMessage::AddGlobalEvent(evt)));
             },
@@ -259,6 +270,7 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             CoreMessage::SetLcrImmediateEventHandler(handler) => {
                 interconnect.lcr_immediate.set_handler(handler);
             },
+            #[cfg(feature = "driver-media")]
             CoreMessage::AddPersistentCoreEvent(evt) => {
                 let event_data = evt.event_data();
                 persistent_core_events.push(evt);
@@ -268,6 +280,7 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
                         .send(EventMessage::AddGlobalEvent(event_data)),
                 );
             },
+            #[cfg(feature = "driver-media")]
             CoreMessage::RemoveGlobalEvents => {
                 persistent_core_events.clear();
                 drop(interconnect.events.send(EventMessage::RemoveGlobalEvents));
@@ -455,7 +468,7 @@ async fn runner(mut config: Config, rx: Receiver<CoreMessage>, tx: Sender<CoreMe
             CoreMessage::RebuildInterconnect => {
                 interconnect.restart_volatile_internals(&persistent_core_events);
             },
-            #[cfg(test)]
+            #[cfg(all(test, feature = "driver-media"))]
             CoreMessage::TestFireCoreEvent(context) => {
                 drop(
                     interconnect
@@ -602,7 +615,7 @@ enum ConnectionFlavour {
     Reconnect,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 mod persistent_core_event_tests {
     use super::*;
     use crate::{

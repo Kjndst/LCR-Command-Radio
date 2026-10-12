@@ -2,24 +2,19 @@
 use crate::driver::DecodeMode;
 use crate::FloatDuration;
 #[cfg(feature = "driver")]
+use crate::driver::{get_default_scheduler, retry::Retry, CryptoMode, Scheduler};
+#[cfg(feature = "driver-media")]
 use crate::{
-    driver::{
-        get_default_scheduler,
-        retry::Retry,
-        tasks::disposal::DisposalThread,
-        CryptoMode,
-        MixMode,
-        Scheduler,
-    },
+    driver::{tasks::disposal::DisposalThread, MixMode},
     input::codecs::*,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 use crate::driver::test_config::*;
-#[cfg(all(test, feature = "driver"))]
+#[cfg(all(test, feature = "driver-media"))]
 use crate::driver::SchedulerConfig;
 
-#[cfg(feature = "driver")]
+#[cfg(feature = "driver-media")]
 use symphonia::core::{codecs::CodecRegistry, probe::Probe};
 
 use derivative::Derivative;
@@ -103,7 +98,7 @@ pub struct Config {
     /// [`join_gateway`]: crate::Call::join_gateway
     pub gateway_timeout: Option<FloatDuration>,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     /// Configures whether the driver will mix and output stereo or mono Opus data
     /// over a voice channel.
     ///
@@ -112,7 +107,7 @@ pub struct Config {
     /// [`Stereo`]: MixMode::Stereo
     pub mix_mode: MixMode,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     /// Number of concurrently active tracks to allocate memory for.
     ///
     /// This should be set at, or just above, the maximum number of tracks
@@ -135,7 +130,7 @@ pub struct Config {
     /// [`Driver`]: crate::driver::Driver
     pub driver_retry: Retry,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     /// Configures whether or not each mixed audio packet is [soft-clipped] into the
     /// [-1, 1] audio range.
     ///
@@ -157,7 +152,7 @@ pub struct Config {
     /// Defaults to 10 seconds. If set to `None`, connections will never time out.
     pub driver_timeout: Option<FloatDuration>,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     #[derivative(Debug = "ignore")]
     /// Registry of the inner codecs supported by the driver, adding opus2-based
     /// Opus codec support to all of Symphonia's default codecs.
@@ -165,7 +160,7 @@ pub struct Config {
     /// Defaults to [`get_codec_registry`].
     pub codec_registry: &'static CodecRegistry,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     #[derivative(Debug = "ignore")]
     /// Registry of the muxers and container formats supported by the driver.
     ///
@@ -173,7 +168,7 @@ pub struct Config {
     /// and DCA format support.
     pub format_registry: &'static Probe,
 
-    #[cfg(feature = "driver")]
+    #[cfg(feature = "driver-media")]
     /// The Sender for a channel that will run the destructor of possibly blocking values.
     ///
     /// If not set, a thread will be spawned to perform this, but it is recommended to create
@@ -194,12 +189,10 @@ pub struct Config {
     pub scheduler: Option<Scheduler>,
 
     // Test only attributes
-    #[cfg(feature = "driver")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "driver-media"))]
     /// Test config to offer precise control over mixing tick rate/count.
     pub(crate) tick_style: TickStyle,
-    #[cfg(feature = "driver")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "driver-media"))]
     /// If set, skip connection and encryption steps.
     pub(crate) override_connection: Option<OutputMode>,
 }
@@ -219,29 +212,27 @@ impl Default for Config {
             playout_spike_length: 3,
             #[cfg(feature = "gateway")]
             gateway_timeout: Some(Duration::from_secs(10).into()),
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             mix_mode: MixMode::Stereo,
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             preallocated_tracks: 1,
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             use_softclip: true,
             #[cfg(feature = "driver")]
             driver_retry: Retry::default(),
             #[cfg(feature = "driver")]
             driver_timeout: Some(Duration::from_secs(10).into()),
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             codec_registry: get_codec_registry(),
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             format_registry: get_probe(),
-            #[cfg(feature = "driver")]
+            #[cfg(feature = "driver-media")]
             disposer: None,
             #[cfg(feature = "driver")]
             scheduler: None,
-            #[cfg(feature = "driver")]
-            #[cfg(test)]
+            #[cfg(all(test, feature = "driver-media"))]
             tick_style: TickStyle::Timed,
-            #[cfg(feature = "driver")]
-            #[cfg(test)]
+            #[cfg(all(test, feature = "driver-media"))]
             override_connection: None,
         }
     }
@@ -290,6 +281,7 @@ impl Config {
 
     /// Sets this `Config`'s audio mixing channel count.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn mix_mode(mut self, mix_mode: MixMode) -> Self {
         self.mix_mode = mix_mode;
         self
@@ -297,6 +289,7 @@ impl Config {
 
     /// Sets this `Config`'s number of tracks to preallocate.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn preallocated_tracks(mut self, preallocated_tracks: u8) -> Self {
         self.preallocated_tracks = preallocated_tracks;
         self
@@ -304,6 +297,7 @@ impl Config {
 
     /// Sets this `Config`'s number to enable/disable soft-clipping sent audio.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn use_softclip(mut self, use_softclip: bool) -> Self {
         self.use_softclip = use_softclip;
         self
@@ -325,6 +319,7 @@ impl Config {
 
     /// Sets this `Config`'s symphonia codec registry.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn codec_registry(mut self, codec_registry: &'static CodecRegistry) -> Self {
         self.codec_registry = codec_registry;
         self
@@ -332,6 +327,7 @@ impl Config {
 
     /// Sets this `Config`'s symphonia format registry/probe set.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn format_registry(mut self, format_registry: &'static Probe) -> Self {
         self.format_registry = format_registry;
         self
@@ -339,6 +335,7 @@ impl Config {
 
     /// Sets this `Config`'s channel for sending disposal messages.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub fn disposer(mut self, disposer: DisposalThread) -> Self {
         self.disposer = Some(disposer);
         self
@@ -362,6 +359,7 @@ impl Config {
 
     /// Ensures a global disposer has been set, initializing one if not.
     #[must_use]
+    #[cfg(feature = "driver-media")]
     pub(crate) fn initialise_disposer(self) -> Self {
         if self.disposer.is_some() {
             self
@@ -378,6 +376,13 @@ impl Config {
     }
 }
 
+#[cfg(all(feature = "driver", not(feature = "driver-media")))]
+impl Config {
+    pub(crate) fn initialise_disposer(self) -> Self {
+        self
+    }
+}
+
 #[cfg(not(feature = "driver"))]
 impl Config {
     pub(crate) fn initialise_disposer(self) -> Self {
@@ -386,7 +391,7 @@ impl Config {
 }
 
 // Test only attributes
-#[cfg(all(test, feature = "driver"))]
+#[cfg(all(test, feature = "driver-media"))]
 #[allow(missing_docs)]
 impl Config {
     #[must_use]

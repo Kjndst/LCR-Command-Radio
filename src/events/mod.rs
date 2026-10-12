@@ -48,28 +48,35 @@
 //! [`CoreEvent`]: CoreEvent
 
 mod context;
+#[cfg(feature = "driver-media")]
 mod core;
+#[cfg(feature = "driver-media")]
 mod data;
+#[cfg(feature = "driver-media")]
 mod store;
+#[cfg(feature = "driver-media")]
 mod track;
+#[cfg(feature = "driver-media")]
 mod untimed;
 
-pub use self::{
-    context::{context_data, EventContext},
-    core::*,
-    data::*,
-    store::*,
-    track::*,
-    untimed::*,
-};
-pub(crate) use context::{internal_data, CoreContext};
+pub use context::context_data;
+#[cfg(feature = "driver-media")]
+pub use context::EventContext;
+#[cfg(feature = "driver-media")]
+pub use self::{core::*, data::*, store::*, track::*, untimed::*};
+pub(crate) use context::internal_data;
+#[cfg(feature = "driver-media")]
+pub(crate) use context::CoreContext;
 
+#[cfg(feature = "driver-media")]
 use async_trait::async_trait;
+#[cfg(feature = "driver-media")]
 use std::time::Duration;
 
 /// Trait to handle an event which can be fired per-track, or globally.
 ///
 /// These may be feasibly reused between several event sources.
+#[cfg(feature = "driver-media")]
 #[async_trait]
 pub trait EventHandler: Send + Sync {
     /// Respond to one received event.
@@ -87,6 +94,7 @@ pub trait EventHandler: Send + Sync {
 /// Event handlers themselves are described in [`EventData::new`].
 ///
 /// [`EventData::new`]: EventData::new
+#[cfg(feature = "driver-media")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum Event {
@@ -128,18 +136,21 @@ pub enum Event {
     Cancel,
 }
 
+#[cfg(feature = "driver-media")]
 impl Event {
     pub(crate) fn is_global_only(&self) -> bool {
         matches!(self, Self::Core(_))
     }
 }
 
+#[cfg(feature = "driver-media")]
 impl From<TrackEvent> for Event {
     fn from(evt: TrackEvent) -> Self {
         Event::Track(evt)
     }
 }
 
+#[cfg(feature = "driver-media")]
 impl From<CoreEvent> for Event {
     fn from(evt: CoreEvent) -> Self {
         Event::Core(evt)

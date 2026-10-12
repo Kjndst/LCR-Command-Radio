@@ -91,7 +91,7 @@ mod float_duration;
 mod handler;
 pub mod id;
 pub(crate) mod info;
-#[cfg(feature = "driver")]
+#[cfg(feature = "driver-media")]
 pub mod input;
 #[cfg(feature = "gateway")]
 pub mod join;
@@ -103,7 +103,7 @@ pub mod serenity;
 pub mod shards;
 #[cfg(any(test, feature = "internals"))]
 pub mod test_utils;
-#[cfg(feature = "driver")]
+#[cfg(feature = "driver-media")]
 pub mod tracks;
 #[cfg(feature = "driver")]
 mod ws;
@@ -116,10 +116,9 @@ pub use serenity_voice_model as model;
 pub(crate) use serde_json as json;
 
 #[cfg(feature = "driver")]
-pub use crate::{
-    driver::Driver,
-    events::{CoreEvent, Event, EventContext, EventHandler, TrackEvent},
-};
+pub use crate::driver::Driver;
+#[cfg(feature = "driver-media")]
+pub use crate::events::{CoreEvent, Event, EventContext, EventHandler, TrackEvent};
 
 #[cfg(feature = "gateway")]
 pub use crate::{handler::*, manager::*};

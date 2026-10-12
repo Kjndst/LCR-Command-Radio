@@ -84,7 +84,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "test-util"] }
 
 [features]
 # Core features
-default = ["driver", "gateway", "rustls", "serenity", "tungstenite", "input-extras"]
+default = ["driver-media", "gateway", "rustls", "serenity", "tungstenite", "input-extras"]
 gateway = [
     "dep:async-trait",
     "dep:dashmap",
@@ -109,12 +109,8 @@ driver = [
     "dep:nohash-hasher",
     "dep:parking_lot",
     "dep:rand",
-    "dep:rubato",
-    "dep:rusty_pool",
     "dep:serenity-voice-model",
     "dep:socket2",
-    "dep:symphonia",
-    "dep:symphonia-core",
     "dep:tokio",
     "dep:typenum",
     "dep:url",
@@ -126,8 +122,15 @@ driver = [
     "tokio?/sync",
     "tokio?/time",
 ]
-input-extras = [
+driver-media = [
     "driver",
+    "dep:rubato",
+    "dep:rusty_pool",
+    "dep:symphonia",
+    "dep:symphonia-core",
+]
+input-extras = [
+    "driver-media",
     "dep:reqwest",
     "dep:ringbuf",
     "dep:serde-aux",
@@ -163,6 +166,7 @@ builtin-queue = []
 receive = ["dep:bytes", "discortp?/demux", "discortp?/rtcp"]
 lcr-raw-receive = ["driver", "receive"]
 lcr-raw-events = ["lcr-raw-receive"]
+lcr-raw-media = ["lcr-raw-events", "lcr-raw-opus-source"]
 
 # Used for docgen/testing/benchmarking.
 full-doc = ["default", "tungstenite", "twilight", "builtin-queue", "receive"]

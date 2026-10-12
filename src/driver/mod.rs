@@ -19,13 +19,14 @@ mod lcr_immediate;
 mod decode_mode;
 #[cfg(feature = "lcr-raw-opus-source")]
 mod raw_opus;
+#[cfg(feature = "driver-media")]
 mod mix_mode;
 pub mod retry;
 mod scheduler;
 pub(crate) mod tasks;
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 pub(crate) mod test_config;
-#[cfg(any(test, feature = "internals"))]
+#[cfg(all(feature = "driver-media", any(test, feature = "internals")))]
 mod test_impls;
 
 use connection::error::{Error, Result};
@@ -39,6 +40,7 @@ pub use lcr_immediate::{LcrImmediateEvent, LcrImmediateEventHandler};
 pub use decode_mode::*;
 #[cfg(feature = "lcr-raw-opus-source")]
 pub use raw_opus::{RawOpusHandle, RawOpusRead, RawOpusSource};
+#[cfg(feature = "driver-media")]
 pub use mix_mode::MixMode;
 pub use scheduler::{
     get_default_scheduler,
@@ -48,22 +50,20 @@ pub use scheduler::{
     Mode as SchedulerMode,
     Scheduler,
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 pub use test_config::*;
-#[cfg(any(test, feature = "internals"))]
+#[cfg(all(feature = "driver-media", any(test, feature = "internals")))]
 pub use test_impls::*;
 
-#[cfg(feature = "builtin-queue")]
+#[cfg(all(feature = "builtin-queue", feature = "driver-media"))]
 use crate::tracks::TrackQueue;
+use crate::{Config, ConnectionInfo};
+#[cfg(feature = "driver-media")]
 use crate::{
     events::EventData,
     input::Input,
     tracks::{Track, TrackHandle},
-    Config,
-    ConnectionInfo,
-    CoreEvent,
-    Event,
-    EventHandler,
+    CoreEvent, Event, EventHandler,
 };
 use core::{
     future::Future,
@@ -83,9 +83,12 @@ pub struct LcrControlledReconnectDiagnostic {
 }
 #[cfg(feature = "builtin-queue")]
 use std::time::Duration;
+#[cfg(feature = "driver-media")]
 #[allow(unused_imports)]
 pub use tasks::disposal::DisposalThread;
-use tasks::message::{CoreMessage, PersistentCoreEvent};
+use tasks::message::CoreMessage;
+#[cfg(feature = "driver-media")]
+use tasks::message::PersistentCoreEvent;
 use tokio::task::JoinHandle;
 use tracing::instrument;
 
@@ -288,6 +291,7 @@ impl Driver {
 
     /// Plays audio from an input, returning a handle for further control.
     #[instrument(skip(self, input))]
+    #[cfg(feature = "driver-media")]
     pub fn play_input(&mut self, input: Input) -> TrackHandle {
         self.play(input.into())
     }
@@ -297,6 +301,7 @@ impl Driver {
     /// Unlike [`Self::play_input`], this stops all other inputs attached
     /// to the channel.
     #[instrument(skip(self, input))]
+    #[cfg(feature = "driver-media")]
     pub fn play_only_input(&mut self, input: Input) -> TrackHandle {
         self.play_only(input.into())
     }
@@ -344,6 +349,7 @@ impl Driver {
     /// that this allows for direct manipulation of the [`Track`] object
     /// before it is passed over to the voice and mixing contexts.
     #[instrument(skip(self, track))]
+    #[cfg(feature = "driver-media")]
     pub fn play(&mut self, track: Track) -> TrackHandle {
         let (handle, ctx) = track.into_context();
         self.send(CoreMessage::AddTrack(Box::new(ctx)));
@@ -357,6 +363,7 @@ impl Driver {
     /// channel. Like [`Self::play`], however, this allows for direct manipulation of the
     /// [`Track`] object before it is passed over to the voice and mixing contexts.
     #[instrument(skip(self, track))]
+    #[cfg(feature = "driver-media")]
     pub fn play_only(&mut self, track: Track) -> TrackHandle {
         let (handle, ctx) = track.into_context();
         self.send(CoreMessage::SetTrack(Some(Box::new(ctx))));
@@ -378,6 +385,7 @@ impl Driver {
 
     /// Stops playing audio from all sources, if any are set.
     #[instrument(skip(self))]
+    #[cfg(feature = "driver-media")]
     pub fn stop(&mut self) {
         self.send(CoreMessage::SetTrack(None));
     }
@@ -409,6 +417,7 @@ impl Driver {
     /// [`TrackEvent`]: crate::events::TrackEvent
     /// [`EventContext`]: crate::events::EventContext
     #[instrument(skip(self, action))]
+    #[cfg(feature = "driver-media")]
     pub fn add_global_event<F: EventHandler + 'static>(&mut self, event: Event, action: F) {
         self.send(CoreMessage::AddEvent(EventData::new(event, action)));
     }
@@ -421,6 +430,7 @@ impl Driver {
     ///
     /// This API is intentionally limited to [`CoreEvent`] listeners.
     #[instrument(skip(self, action))]
+    #[cfg(feature = "driver-media")]
     pub fn add_persistent_core_event<F: EventHandler + 'static>(
         &mut self,
         event: CoreEvent,
@@ -437,6 +447,7 @@ impl Driver {
     /// It does not add retry or reconstruction authority.
     #[doc(hidden)]
     #[instrument(skip(self, action))]
+    #[cfg(feature = "driver-media")]
     pub fn lcr_try_add_persistent_core_event<F: EventHandler + 'static>(
         &mut self,
         event: CoreEvent,
@@ -491,6 +502,7 @@ impl Driver {
 
     /// Removes all global event handlers from an audio context.
     #[instrument(skip(self))]
+    #[cfg(feature = "driver-media")]
     pub fn remove_all_global_events(&mut self) {
         self.send(CoreMessage::RemoveGlobalEvents);
     }
@@ -500,6 +512,7 @@ impl Driver {
     /// Success means the reset command was accepted by this exact Driver core.
     #[doc(hidden)]
     #[instrument(skip(self))]
+    #[cfg(feature = "driver-media")]
     pub fn lcr_try_remove_all_global_events(
         &mut self,
     ) -> std::result::Result<(), LcrCoreUnavailable> {
@@ -523,7 +536,7 @@ impl Driver {
     }
 }
 
-#[cfg(feature = "builtin-queue")]
+#[cfg(all(feature = "builtin-queue", feature = "driver-media"))]
 impl Driver {
     /// Returns a reference to this driver's built-in queue.
     ///
@@ -768,10 +781,10 @@ impl LcrCausalEventHandler for LcrCriticalNoopCausalHandler {
     async fn handle(&self, _event: LcrCausalEvent) {}
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 struct LcrCriticalNoopEventHandler;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 #[async_trait::async_trait]
 impl EventHandler for LcrCriticalNoopEventHandler {
     async fn act(
@@ -865,7 +878,7 @@ fn lcr_critical_causal_handler_rejects_dead_core() {
     assert!(driver.core_task.is_none());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 #[test]
 fn lcr_critical_persistent_event_rejects_dead_core() {
     let mut driver = lcr_critical_dead_core_driver();
@@ -879,7 +892,7 @@ fn lcr_critical_persistent_event_rejects_dead_core() {
     assert!(driver.core_task.is_none());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 #[test]
 fn lcr_critical_event_reset_rejects_dead_core() {
     let mut driver = lcr_critical_dead_core_driver();
@@ -902,7 +915,7 @@ async fn lcr_critical_raw_install_accepts_live_core() {
     assert!(result.is_ok());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "driver-media"))]
 #[tokio::test]
 async fn lcr_critical_event_seams_accept_live_core() {
     let mut driver = Driver::new(Config::default());
@@ -927,13 +940,13 @@ async fn lcr_critical_event_seams_accept_live_core() {
     );
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 struct LcrR0cPanickingRawSource {
     armed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pulls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 impl RawOpusSource for LcrR0cPanickingRawSource {
     fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
         const FRAME: &[u8] = &[0x11, 0x22, 0x33, 0x44];
@@ -950,12 +963,12 @@ impl RawOpusSource for LcrR0cPanickingRawSource {
     }
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 struct LcrR0cHealthyRawSource {
     pulls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 impl RawOpusSource for LcrR0cHealthyRawSource {
     fn pull_opus(&mut self, dst: &mut [u8]) -> RawOpusRead {
         const FRAME: &[u8] = &[0xaa, 0xbb, 0xcc, 0xdd];
@@ -967,7 +980,7 @@ impl RawOpusSource for LcrR0cHealthyRawSource {
     }
 }
 
-#[cfg(all(test, feature = "lcr-raw-opus-source"))]
+#[cfg(all(test, feature = "driver-media", feature = "lcr-raw-opus-source"))]
 #[tokio::test]
 async fn lcr_r0c_panicking_mixer_is_contained_to_one_shared_worker_peer() {
     use std::{num::NonZeroUsize, sync::atomic::Ordering as AtomicOrdering};
