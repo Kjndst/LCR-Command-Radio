@@ -5,7 +5,9 @@ import (
 	"os"
 )
 
-var defaultServerURL = "https://lcr.tail7b8791.ts.net"
+// No personal/private infrastructure endpoint is embedded in public source.
+// Release builders must supply an explicit -X main.defaultServerURL value.
+var defaultServerURL = ""
 var buildVersion = "0.0.1 Beta"
 
 func main() {
