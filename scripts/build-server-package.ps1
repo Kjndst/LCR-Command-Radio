@@ -6,7 +6,6 @@ $expectedImageSha256 = '1185829926f797833c8cad293a13682be72094d65493fd24dd4147ab
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($ImageTar)) { $ImageTar = Join-Path $projectRoot 'bin\LCR-Server\image.tar' }
 $imageTarPath = (Resolve-Path $ImageTar).Path
-$storePath = Join-Path $projectRoot 'host\data\store.yaml'
 $sbomPath = Join-Path $projectRoot 'release\server.spdx.json'
 $outputPath = Join-Path $projectRoot 'bin\LCR-Server.zip'
 
@@ -15,7 +14,6 @@ function Assert-File([string]$Path, [string]$Name) {
 }
 
 Assert-File $imageTarPath 'Exact image archive'
-Assert-File $storePath 'Store snapshot'
 Assert-File $sbomPath 'SBOM'
 $imageHash = (Get-FileHash -LiteralPath $imageTarPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($imageHash -ne $expectedImageSha256) { throw "Refusing unexpected image.tar SHA-256: $imageHash" }
@@ -25,7 +23,9 @@ try {
     New-Item -ItemType Directory -Path $stage | Out-Null
     'data', 'scripts', 'LICENSES' | ForEach-Object { New-Item -ItemType Directory -Path (Join-Path $stage $_) | Out-Null }
     Copy-Item -LiteralPath $imageTarPath -Destination (Join-Path $stage 'image.tar')
-    Copy-Item -LiteralPath $storePath -Destination (Join-Path $stage 'data\store.yaml')
+    # Public release MUST contain an empty schema-compatible store, never a live host snapshot.
+    $safeStorePath = Join-Path $stage 'data\store.yaml'
+    [System.IO.File]::WriteAllText($safeStorePath, "guilds: []`n", (New-Object System.Text.UTF8Encoding($false)))
     Copy-Item -LiteralPath $sbomPath -Destination (Join-Path $stage 'server.spdx.json')
     Copy-Item -LiteralPath (Join-Path $projectRoot 'host\scripts\runtime-env.sh') -Destination (Join-Path $stage 'scripts\runtime-env.sh')
     Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $stage
@@ -127,8 +127,9 @@ docker compose --env-file .env.runtime -f compose.yaml stop bot
 LCR — Linh Lan Bang Command Radio
 Gói máy chủ Linux di động (Linux amd64)
 
-Gói gồm image Docker, compose.yaml, scripts/, data/store.yaml (snapshot cấu
-hình), SBOM, thông báo bên thứ ba và license texts. Gói không chứa .env.host,
+Gói gồm image Docker, compose.yaml, scripts/, data/store.yaml (cấu hình
+trống, không có dữ liệu guild/người dùng), SBOM, thông báo bên thứ ba và license texts.
+Gói không chứa .env.host,
 Discord token, device token hoặc cấu hình Tailscale riêng tư.
 
 Yêu cầu: Linux amd64, Docker Engine và Docker Compose plugin. LCR Helper là ứng
@@ -156,8 +157,9 @@ Metadata `.env.runtime` chỉ chứa UID/GID, được tạo tự động, host-
 phải secret; `.env.host` vẫn là cấu hình Discord/server riêng tư. Không dùng
 `chmod 777` cho thư mục `data`.
 
-data/store.yaml là snapshot để hỗ trợ migration, có thể cũ hơn binding hiện tại.
-Dùng snapshot tin cậy mới hơn hoặc chạy /setup cho guild/cấu hình khác.
+data/store.yaml trong gói public LUÔN trống. Chạy /setup cho guild mới.
+Nếu cần phục hồi cấu hình thực, chuyển snapshot riêng qua kênh riêng tư và
+không commit, đóng gói hoặc phát hành file store.yaml có dữ liệu thật.
 
 VẬN HÀNH
 
@@ -174,6 +176,14 @@ LCR-original source là Apache-2.0 (LICENSE). Xem THIRD_PARTY_NOTICES.md,
 LICENSES/, và server.spdx.json để biết attribution và giới hạn inventory runtime.
 '@ | Set-Content -LiteralPath (Join-Path $stage 'README.txt') -Encoding utf8
 
+    # Fail closed if unexpected runtime material enters the public package.
+    $dataFiles = @(Get-ChildItem -LiteralPath (Join-Path $stage 'data') -Recurse -File)
+    if ($dataFiles.Count -ne 1 -or $dataFiles[0].FullName -ne $safeStorePath) {
+        throw 'Public LCR package contains unexpected runtime data'
+    }
+    if ((Get-Content -LiteralPath $safeStorePath -Raw).Trim() -cne 'guilds: []') {
+        throw 'Public LCR package store must contain only empty guilds schema'
+    }
     $payload = Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Name -ne 'manifest.txt' } | Sort-Object { $_.FullName.Substring($stage.Length).Replace('\', '/') }
     $manifest = @('LCR PORTABLE SERVER MANIFEST', ('Image SHA256: ' + $expectedImageSha256), '', 'FILES / SHA256')
     foreach ($file in $payload) {
