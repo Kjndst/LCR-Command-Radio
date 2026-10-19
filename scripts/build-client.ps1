@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$PublicUrl = "https://lcr.tail7b8791.ts.net",
+    [string]$PublicUrl = "",
     [string]$Output = "",
     [string]$Version = "0.0.1 Beta"
 )
@@ -15,6 +15,7 @@ $GoCandidates = @(
 ) | Where-Object { $_ -and (Test-Path $_) }
 if (-not $GoCandidates) { throw 'Go was not found. Install/reuse it under D:\Tools; do not duplicate Go inside this project.' }
 $Go = @($GoCandidates)[0]
+if ([string]::IsNullOrWhiteSpace($PublicUrl)) { throw 'Explicit -PublicUrl is required; do not embed private infrastructure endpoints.' }
 if (-not $PublicUrl.StartsWith('https://')) { throw 'Production PublicUrl must use https://.' }
 $Winres = 'D:\Tools\go-winres\go-winres.exe'
 if (-not (Test-Path $Winres)) { throw 'go-winres was not found at D:\Tools\go-winres\go-winres.exe. Install/reuse the external tool under D:\Tools.' }
