@@ -12,7 +12,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Kjndst/LCR-Command-Radio/releases/tag/v0.0.7-beta"><b>Download LCR 0.0.7 Beta</b></a>
+  <b>LCR BƯỚC SANG KỶ NGUYÊN MỚI</b><br>
+  <b>Ít thao tác hơn. Ít phần mềm hơn. Tập trung vào trận đánh.</b><br>
+  LCR đang chuyển sang trải nghiệm trực tiếp trên Discord: khi server của đồng chí được cập nhật, không còn cần tải Helper, nhập Pair Code hay chạy ứng dụng bên ngoài.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Kjndst/LCR-Command-Radio/releases/tag/v0.0.8"><b>Helper 0.0.8 - Retirement Version</b></a><br>
+  <sub>Bản lưu trữ kết thúc vòng đời Helper, không phải bản cài đặt hoặc bản cập nhật dành cho người chơi.</sub>
 </p>
 
 ---
@@ -48,7 +55,7 @@ LCR được xây dựng quanh một nguyên tắc rất đơn giản:
 ```
 
 - **Commander -> Units:** phát lệnh xuống đội hình.
-- **Unit Leader -> Command:** giữ Radio Key khi cần báo cáo.
+- **Unit Leader -> Command:** ưu tiên phát lên Command khi cần báo cáo.
 - **Trong Unit:** vẫn nói Discord bình thường.
 - **Unit -> Unit khác:** không tự relay chéo, tránh biến chiến trường thành một phòng voice hỗn loạn.
 
@@ -89,7 +96,7 @@ Mục tiêu là để **đúng người được nghe, đúng lúc, đúng tuy�
 
 ### So với Discord
 
-Discord vẫn là nơi mọi người nói chuyện. LCR chỉ thêm **radio layer** để nhiều channel có thể vận hành như một đội hình có chỉ huy.
+Discord vẫn là nơi mọi người nói chuyện. LCR giúp nhiều channel có thể vận hành như một đội hình có chỉ huy, mà không bắt mọi người phải rời Discord.
 
 ### So với shotcaller bot
 
@@ -105,57 +112,35 @@ Nếu cộng đồng đã vận hành hoàn hảo trên TeamSpeak thì không nh
 
 ---
 
-# IV. LCR HELPER - BIẾN MỘT PHÍM THÀNH RADIO KEY
-
-<p align="center">
-  <img src="docs/readme/lcr-helper.webp" width="185" alt="LCR Helper">
-</p>
+# IV. KỶ NGUYÊN MỚI - CHỈ CẦN DISCORD
 
 Discord biết đồng chí đang nói, nhưng không biết câu nói đó là **trao đổi trong Unit** hay **báo cáo lên Command**.
 
-Đó là lý do Helper tồn tại.
+LCR giúp đội hình giữ hai cách liên lạc ấy rõ ràng, không làm lẫn tiếng nói của từng tổ với mệnh lệnh toàn raid.
 
-`LCR.exe` biến một phím quen thuộc như Mouse4/Mouse5 thành **Radio Key**:
+Với trải nghiệm mới, mọi việc quan trọng đều diễn ra ngay trong Discord:
 
-```text
-Nói bình thường
-    -> chỉ Unit của đồng chí nghe
+- **Thành viên Unit** vào phòng của mình và nói chuyện như bình thường.
+- **Unit Leader** trao đổi trong Unit, chỉ ưu tiên báo cáo lên Command khi cần.
+- **Commander** điều phối tuyến chỉ huy và đưa mệnh lệnh tới các Unit được chọn.
+- **Không còn cần cài LCR Helper**, ghép Pair Code hay mở một cửa sổ khác chỉ để dùng radio.
 
-Giữ Radio Key + nói
-    -> Unit vẫn nghe
-    -> Command nhận báo cáo
+Trải nghiệm này sẽ được áp dụng khi server Discord chuyển sang phiên bản LCR mới. **Cho đến khi có thông báo chuyển đổi, cách sử dụng hiện tại không thay đổi.**
 
-Nhả Radio Key
-    -> uplink đóng ngay
-```
-
-Helper được cố ý giữ nhỏ và đơn giản:
-
-- không đăng nhập Discord thay người dùng;
-- không dùng user token hoặc self-bot;
-- không lấy microphone audio;
-- không thay Discord client;
-- chỉ điều khiển khi nào cổng radio được phép mở.
-
-Với 0.0.7, Helper có giao diện mới theo phong cách **command-radio quân sự hiện đại**, tập trung vào khả năng đọc trạng thái trong một cái liếc mắt. PTT phản hồi rõ hơn, hoạt động ổn định hơn với game/app chạy quyền Administrator, Pair nhanh hơn và toàn bộ flow được tinh gọn để không trở thành thứ người chơi phải nghĩ đến giữa combat.
+Helper đã hoàn thành nhiệm vụ của mình. Phiên bản cuối **0.0.8 Retirement Version** được lưu giữ cùng [hai ảnh giao diện Pair / Main và những dấu mốc cuối cùng](https://github.com/Kjndst/LCR-Command-Radio/releases/tag/v0.0.8), để những gì từng làm nên LCR không biến mất cùng một lần nâng cấp.
 
 ---
 
-# V. CÔNG NGHỆ MỚI - ĐƯỢC XÂY CHO LCR, KHÔNG PHẢI ÉP LCR VỪA MỘT BOT VOICE CHUNG
+# V. LCR ĐƯỢC XÂY QUANH TRẢI NGHIỆM TRẬN ĐÁNH
 
-LCR bắt đầu từ nhu cầu rất thực tế của guild và tiếp tục được tối ưu từ chính những gì xảy ra trong server test và các phiên combat.
+LCR bắt đầu từ nhu cầu rất thực tế của guild và tiếp tục được hoàn thiện từ chính những gì xảy ra trong server test và các phiên combat.
 
-Phiên bản hiện tại đã chuyển phần truyền thoại từ **Songbird** sang **LVT**, công nghệ voice do chúng tôi tự phát triển riêng cho mô hình Command - Unit của LCR.
+Kỷ nguyên mới không nhằm biến radio thành một hệ thống nhiều nút bấm hơn. Ngược lại, chúng tôi muốn người chơi có thể **vào đúng channel, nhận đúng lệnh, báo cáo đúng lúc** mà không phải nghĩ đến một phần mềm hỗ trợ đang chạy bên cạnh.
 
-Mục tiêu của LVT không phải thêm nhiều tính năng hơn. Ngược lại, nó cắt bỏ những gì LCR không cần:
-
-- đường truyền thoại ngắn và dễ kiểm soát hơn;
-- hạn chế xử lý lại âm thanh không cần thiết;
-- giảm tài nguyên và các hàng đợi thừa;
-- recovery rõ ràng hơn khi Discord hoặc mạng có vấn đề;
-- tối ưu đúng cho một command-radio chạy lâu dài, thay vì một bot phát nhạc hay voice utility đa dụng.
-
-Helper cũng đã rời kiến trúc tunnel cũ sang đường điều khiển trực tiếp hơn, ưu tiên thời gian từ **nhấn PTT -> radio nhận lệnh**.
+- **Ít chuẩn bị hơn:** không cần thêm ứng dụng riêng khi trải nghiệm mới được kích hoạt.
+- **Liên lạc có kỷ luật hơn:** Unit giữ cuộc trò chuyện của Unit; tuyến chỉ huy chỉ mở khi cần.
+- **Dễ theo dõi hơn:** mọi người biết mình đang nghe ai và lúc nào cần lên tiếng.
+- **Tin cậy hơn:** khi radio không chắc quyền hoặc trạng thái, hệ thống ưu tiên không truyền sai tuyến.
 
 Tất cả quay về một triết lý:
 
@@ -165,7 +150,9 @@ LCR phải nhẹ khi không có gì xảy ra, phản hồi nhanh khi trận đá
 
 ---
 
-# VI. BẮT ĐẦU TRONG 30 GIÂY
+# VI. BẮT ĐẦU VỚI LCR
+
+> Hướng dẫn dưới đây dành cho **trải nghiệm LCR mới sau khi server đã chuyển đổi**. Trước thông báo chuyển đổi chính thức, đồng chí tiếp tục sử dụng cách hiện tại.
 
 ### Thành viên Unit
 
@@ -177,28 +164,32 @@ Không cần cài gì.
 
 ### Unit Leader
 
-1. Tải và mở **LCR Helper**.
-2. Dùng `/radio-pair` trong Discord.
-3. Nhập Pair Code vào Helper.
-4. Chọn Radio Key.
-5. Khi Helper báo **STANDBY**, radio đã sẵn sàng.
+1. Vào đúng Unit voice channel.
+2. Nói chuyện với đồng đội trong Unit như bình thường.
+3. Khi cần báo cáo lên Command, **giữ Priority theo quyền đã được cấu hình trong Discord** rồi nói.
+4. Kết thúc báo cáo thì thả Priority, tiếp tục trao đổi trong Unit.
 
 ### Commander
 
-Ở Command Channel, Commander điều phối các Unit theo mode radio đang được cấu hình. Trong Command Radio thông thường, Commander nói ở Command và lệnh được đưa xuống các Unit đang active.
+1. Dùng `/setup` để chọn vai trò và các Command / Unit channel cần sử dụng.
+2. Dùng `/start` để bắt đầu phiên radio đã cấu hình.
+3. Điều phối các Unit từ Command Channel và kiểm tra trạng thái bằng `/status`.
+4. Dùng `/stop` khi kết thúc phiên.
+
+**Không có bước tải Helper hay Pair Code trong trải nghiệm mới.**
 
 ---
 
 # VII. NGUYÊN TẮC VẬN HÀNH
 
 ```text
-COMMANDER -> UNITS          : CÓ
-UNIT LEADER -> COMMAND      : CÓ, khi giữ Radio Key
+COMMANDER -> UNITS          : CÓ, theo phiên radio đang hoạt động
+UNIT LEADER -> COMMAND      : CÓ, khi dùng Priority hợp lệ
 UNIT -> UNIT KHÁC           : KHÔNG
-HELPER -> MICROPHONE AUDIO  : KHÔNG
+TRÒ CHUYỆN TRONG UNIT       : VẪN DÙNG DISCORD BÌNH THƯỜNG
 ```
 
-LCR ưu tiên **fail closed**. Nếu quyền điều khiển, pairing hoặc trạng thái tuyến không còn đủ chắc chắn, radio sẽ không tự mở một đường truyền mơ hồ.
+LCR ưu tiên **fail closed**. Nếu quyền điều khiển hoặc trạng thái tuyến không còn đủ chắc chắn, radio sẽ không tự mở một đường truyền mơ hồ.
 
 ---
 
@@ -219,6 +210,7 @@ Chào các đồng chí đến với LCR.
 ---
 
 <p align="center">
-  <b>Current public beta: v0.0.7-beta</b><br>
-  <a href="https://github.com/Kjndst/LCR-Command-Radio/releases/tag/v0.0.7-beta">Download release</a>
+  <b>LCR đang bước sang kỷ nguyên trực tiếp trên Discord.</b><br>
+  <sub>Ngày chuyển đổi và cách sử dụng chính thức sẽ được thông báo riêng.</sub><br>
+  <a href="https://github.com/Kjndst/LCR-Command-Radio/releases/tag/v0.0.8">LCR Helper 0.0.8 - Retirement Version</a>
 </p>
