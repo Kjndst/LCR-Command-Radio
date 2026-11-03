@@ -1,0 +1,6 @@
+Jura, Google Fonts
+https://fonts.google.com/specimen/Jura
+https://github.com/google/fonts/tree/66928797f271fed5ee428544e7229685e2d90127/ofl/jura
+Revision: 66928797f271fed5ee428544e7229685e2d90127
+Source: Jura[wght].ttf
+License: SIL Open Font License 1.1 (OFL.txt)

@@ -1,0 +1,30 @@
+[workspace]
+members = [
+    "crates/lcr-helper",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.1"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+async-trait = "=0.1.92"
+bytes = "=1.12.1"
+discortp = { version = "=0.6.0", default-features = false, features = ["discord", "pnet", "rtp"] }
+opus2 = "=0.4.0"
+songbird = { version = "=0.6.0", git = "https://github.com/Kjndst/LCR-Command-Radio-Private", rev = "e26486f4c4c169662a1b375e4312a15385f55d45", default-features = false, features = ["driver", "gateway", "lcr-raw-media", "rustls", "twilight", "tws", "lcr-controlled-fault", "lcr-raw-opus-source"] }
+tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+twilight-gateway = { version = "=0.17.0", default-features = false, features = ["rustls-native-roots"] }
+twilight-http = { version = "=0.17.0", default-features = false, features = ["rustls-native-roots"] }
+twilight-model = { version = "=0.17.0", default-features = false }
+
+# SCRATCH GIT SHA pin replay; no local path overrides.
+[patch.crates-io]
+davey = { git = "https://github.com/Kjndst/LCR-Command-Radio-Private", rev = "10c39eef0ce59dee06dfad596f0050c0a8488791" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git", rev = "be248d4b1306d87a641ce24ed0ffcab2b27967f6" }
+openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", rev = "be248d4b1306d87a641ce24ed0ffcab2b27967f6" }
+openmls_traits = { git = "https://github.com/openmls/openmls.git", rev = "be248d4b1306d87a641ce24ed0ffcab2b27967f6" }
+openmls_memory_storage = { git = "https://github.com/openmls/openmls.git", rev = "be248d4b1306d87a641ce24ed0ffcab2b27967f6" }
